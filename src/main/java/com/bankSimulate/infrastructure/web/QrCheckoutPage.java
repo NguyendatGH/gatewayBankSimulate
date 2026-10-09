@@ -115,7 +115,7 @@ final class QrCheckoutPage {
                 client=new google.payments.api.PaymentsClient({environment:root.dataset.env});
                 client.isReadyToPay(Object.assign({},base,{allowedPaymentMethods:[method]})).then(function(r){
                   if(!r.result){say('Google Pay không khả dụng trên trình duyệt này. Hãy đăng nhập tài khoản Google hoặc chọn phương thức khác.');return;}
-                  root.appendChild(client.createButton({buttonType:'pay',buttonColor:'black',buttonSizeMode:'fill',onClick:pay}));
+                  root.appendChild(client.createButton({buttonType:'pay',buttonColor:'black',buttonSizeMode:'fill',onClick:pay})); say('');
                 }).catch(function(){say('Không kiểm tra được Google Pay.');});
               };
               say('Đang tải Google Pay…');
