@@ -34,7 +34,6 @@ public class QrPaymentService {
     private static final String SANDBOX_PAYER_BANK_BIN = "970436";
     private static final String SANDBOX_PAYER_ACCOUNT = "0123456789012";
     private static final long DEFAULT_TTL_SECONDS = 900;
-    private static final int MAX_GOOGLE_PAY_TOKEN_CHARS = 20_000;
 
     public enum Action { SUCCEED, FAIL, EXPIRE }
 
@@ -44,7 +43,6 @@ public class QrPaymentService {
     private final GatewayTransactionRepository transactions;
     private final GatewayMoneyService money;
     private final MerchantWebhookSender webhooks;
-    private final GooglePaySandboxBank googlePayBank;
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
     private final String publicBaseUrl;
@@ -52,8 +50,7 @@ public class QrPaymentService {
     public QrPaymentService(GatewayRuntimeAuth auth, TerminalRoutes terminalRoutes,
                             AcquirerMerchantConfigRepository acquirerConfigs,
                             GatewayTransactionRepository transactions, GatewayMoneyService money,
-                            MerchantWebhookSender webhooks, GooglePaySandboxBank googlePayBank, JdbcTemplate jdbc,
-                            TransactionTemplate tx,
+                            MerchantWebhookSender webhooks, JdbcTemplate jdbc, TransactionTemplate tx,
                             @Value("${gateway.public-base-url:http://localhost:8090}") String publicBaseUrl) {
         this.auth = auth;
         this.terminalRoutes = terminalRoutes;
@@ -61,7 +58,6 @@ public class QrPaymentService {
         this.transactions = transactions;
         this.money = money;
         this.webhooks = webhooks;
-        this.googlePayBank = googlePayBank;
         this.jdbc = jdbc;
         this.tx = tx;
         this.publicBaseUrl = publicBaseUrl.replaceAll("/$", "");
@@ -128,42 +124,18 @@ public class QrPaymentService {
         boolean pending = "PENDING".equals(p.status());
         log.info(pending ? "Checkout page opened" : "Checkout page reopened, payment already {}", p.status());
         return new CheckoutView(p.tradeNo(), p.merchantName(), p.method(), p.orderCode(), p.amount(), p.status(), pending,
-                "PAID".equals(p.status()) ? p.returnUrl() : p.cancelUrl(), qrPayload(p),
-                googlePayBank.environment(), googlePayBank.scenariosEnabled());
+                "PAID".equals(p.status()) ? p.returnUrl() : p.cancelUrl(), qrPayload(p));
     }
 
     /**
-     * Nhận token từ nút Google Pay chính thức. Token KHÔNG được log, KHÔNG được giải mã và KHÔNG quyết định kết quả:
-     * kết quả đến từ kịch bản của {@link GooglePaySandboxBank}. Đi qua đúng {@link #complete} nên capture/ghi sổ/webhook
-     * y hệt QR, và gọi lặp lại không capture hai lần (đơn đã chốt thì trả lại kết quả cũ).
+     * Trạng thái hiện tại của một giao dịch cho các luồng thanh toán riêng của từng phương thức (ví dụ Google Pay)
+     * cần kiểm tra trước khi chốt. Hết hạn thì chốt EXPIRED trước, nên trạng thái trả về là trạng thái thật.
      */
-    public GooglePayResult payWithGooglePay(String tradeNo, String token, String scenarioRaw) {
-        if (token == null || token.isBlank() || token.length() > MAX_GOOGLE_PAY_TOKEN_CHARS)
-            throw new ApiException(400, "GOOGLE_PAY_TOKEN_INVALID", "Google Pay token is missing or too large");
+    public PaymentState state(String tradeNo) {
         expireIfDue(tradeNo);
         QrRow p = require(tradeNo);
         tagLog(p);
-        if (!"GOOGLE_PAY".equals(p.method()))
-            throw new ApiException(409, "PAYMENT_METHOD_MISMATCH", "Payment was not created for GOOGLE_PAY");
-        if (!"PENDING".equals(p.status())) return googlePayResult(p);
-        GooglePaySandboxBank.Scenario scenario = googlePayBank.resolve(scenarioRaw);
-        log.info("Google Pay token received (content not logged), sandbox scenario={}", scenario);
-        switch (scenario) {
-            case BANK_TIMEOUT -> {
-                return new GooglePayResult("PENDING", null);
-            }
-            case DECLINED -> complete(tradeNo, Action.FAIL);
-            case APPROVED -> complete(tradeNo, Action.SUCCEED);
-        }
-        return googlePayResult(require(tradeNo));
-    }
-
-    private static GooglePayResult googlePayResult(QrRow p) {
-        return switch (p.status()) {
-            case "PAID" -> new GooglePayResult("SUCCEEDED", p.returnUrl());
-            case "PENDING" -> new GooglePayResult("PENDING", null);
-            default -> new GooglePayResult("FAILED", p.cancelUrl());
-        };
+        return new PaymentState(p.method(), p.status(), p.returnUrl(), p.cancelUrl());
     }
 
     public String complete(String tradeNo, Action action) {
@@ -372,8 +344,7 @@ public class QrPaymentService {
     private record Webhook(String url, UUID merchantId, Map<String, Object> body) {}
 
     public record CheckoutView(String tradeNo, String merchantName, String method, String orderCode, long amount,
-                               String status, boolean pending, String backUrl, String qrPayload,
-                               String googlePayEnvironment, boolean scenarioControls) {}
+                               String status, boolean pending, String backUrl, String qrPayload) {}
 
-    public record GooglePayResult(String status, String redirectUrl) {}
+    public record PaymentState(String method, String status, String returnUrl, String cancelUrl) {}
 }

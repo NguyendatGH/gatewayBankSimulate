@@ -1,6 +1,7 @@
 package com.bankSimulate.infrastructure.web;
 
 import com.bankSimulate.application.QrPaymentService;
+import com.bankSimulate.googlepay.GooglePayCheckoutPage;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -16,21 +17,18 @@ public class GatewayCheckoutController {
     private static final MediaType HTML_UTF8 = new MediaType(MediaType.TEXT_HTML, StandardCharsets.UTF_8);
 
     private final QrPaymentService service;
+    private final GooglePayCheckoutPage googlePayPage;
 
-    public GatewayCheckoutController(QrPaymentService service) {
+    public GatewayCheckoutController(QrPaymentService service, GooglePayCheckoutPage googlePayPage) {
         this.service = service;
+        this.googlePayPage = googlePayPage;
     }
 
     @GetMapping("/{tradeNo}")
     public ResponseEntity<String> page(@PathVariable String tradeNo) {
-        return ResponseEntity.ok().contentType(HTML_UTF8).body(QrCheckoutPage.render(service.checkout(tradeNo)));
-    }
-
-    public record GooglePayRequest(String token, String scenario) {}
-
-    @PostMapping("/{tradeNo}/google-pay")
-    public QrPaymentService.GooglePayResult googlePay(@PathVariable String tradeNo, @RequestBody GooglePayRequest body) {
-        return service.payWithGooglePay(tradeNo, body.token(), body.scenario());
+        QrPaymentService.CheckoutView view = service.checkout(tradeNo);
+        String html = googlePayPage.supports(view) ? googlePayPage.render(view) : QrCheckoutPage.render(view);
+        return ResponseEntity.ok().contentType(HTML_UTF8).body(html);
     }
 
     @PostMapping("/{tradeNo}/{action:succeed|fail|expire}")

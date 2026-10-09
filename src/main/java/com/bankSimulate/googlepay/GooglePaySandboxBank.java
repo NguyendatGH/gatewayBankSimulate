@@ -1,4 +1,4 @@
-package com.bankSimulate.application;
+package com.bankSimulate.googlepay;
 
 import com.bankSimulate.domain.common.ApiException;
 import org.springframework.beans.factory.annotation.Value;

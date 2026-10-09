@@ -6,16 +6,27 @@ import org.springframework.web.util.HtmlUtils;
 import java.text.NumberFormat;
 import java.util.Locale;
 
-final class QrCheckoutPage {
+public final class QrCheckoutPage {
 
     private QrCheckoutPage() {
     }
 
+    /**
+     * Các "khe" mà trang của một phương thức riêng (ví dụ Google Pay) được thay vào khi giao dịch còn PENDING:
+     * khối giải thích, khối hành động (nút thanh toán), phần thêm trong mục kiểm thử sandbox, và script cuối trang.
+     * Khung trang, CSS và nút "Mô phỏng thất bại / hết hạn" vẫn dùng chung.
+     */
+    public record Slots(String status, String action, String extraTestControls, String script) {}
+
     static String render(QrPaymentService.CheckoutView v) {
+        return renderWith(v, null);
+    }
+
+    public static String renderWith(QrPaymentService.CheckoutView v, Slots custom) {
         String safeId = HtmlUtils.htmlEscape(v.tradeNo(), "UTF-8");
         String qrPanel = v.qrPayload() == null ? "" : "<section class=\"qr-panel\"><p class=\"eyebrow\">Mã QR mô phỏng</p>"
                 + QrSvg.render(v.qrPayload()) + "<pre>" + HtmlUtils.htmlEscape(v.qrPayload(), "UTF-8") + "</pre></section>";
-        boolean googlePay = v.pending() && "GOOGLE_PAY".equals(v.method());
+        boolean hasCustom = v.pending() && custom != null;
         String statusPanel;
         String paymentAction;
         if (!v.pending()) {
@@ -31,24 +42,14 @@ final class QrCheckoutPage {
             String title = "QR".equals(v.method()) ? "Quét mã bằng ứng dụng ngân hàng" : "Xác nhận trên ví / ứng dụng ngân hàng";
             statusPanel = "<div class=\"flow-card\"><span class=\"flow-icon\" aria-hidden=\"true\">↗</span><div><strong>"
                     + title + "</strong><p>Bấm \"Xác nhận thanh toán\" để mô phỏng ngân hàng của bạn duyệt giao dịch.</p></div></div>";
-            paymentAction = googlePay
-                    ? "<div id=\"gpay\" data-trade=\"" + safeId + "\" data-env=\"" + HtmlUtils.htmlEscape(v.googlePayEnvironment(), "UTF-8")
-                    + "\" data-merchant=\"" + HtmlUtils.htmlEscape(v.merchantName(), "UTF-8") + "\" data-amount=\"" + v.amount()
-                    + "\"></div><p id=\"gpay-msg\" class=\"otp-error\" role=\"alert\" aria-live=\"polite\"></p>"
-                    : "<form method=\"post\" action=\"/checkout/" + safeId + "/succeed\"><button class=\"button primary\" "
+            paymentAction = "<form method=\"post\" action=\"/checkout/" + safeId + "/succeed\"><button class=\"button primary\" "
                     + "type=\"submit\">Xác nhận thanh toán<span aria-hidden=\"true\">→</span></button></form>";
-            if (googlePay) statusPanel = "<div class=\"flow-card\"><span class=\"flow-icon\" aria-hidden=\"true\">G</span><div><strong>"
-                    + "Thanh toán bằng Google Pay</strong><p>Bấm nút Google Pay, chọn thẻ thử nghiệm trong cửa sổ của Google. "
-                    + "Ngân hàng mô phỏng sẽ duyệt giao dịch.</p></div></div>";
+            if (hasCustom) {
+                statusPanel = custom.status();
+                paymentAction = custom.action();
+            }
         }
-        String scenarioPicker = googlePay && v.scenarioControls() ? """
-                  <label class="otp-label" for="gpay-scenario" style="margin-top:12px">Kịch bản ngân hàng mô phỏng (chỉ sandbox)</label>
-                  <select id="gpay-scenario" class="otp-input" style="letter-spacing:0">
-                    <option value="APPROVED">APPROVED — ngân hàng duyệt</option>
-                    <option value="DECLINED">DECLINED — ngân hàng từ chối</option>
-                    <option value="BANK_TIMEOUT">BANK_TIMEOUT — ngân hàng không phản hồi</option>
-                  </select>
-                """ : "";
+        String extraTest = hasCustom ? custom.extraTestControls() : "";
         String testControls = v.pending() ? """
                 <details class="test-controls"><summary>Tuỳ chọn kiểm thử sandbox</summary>
                   %s
@@ -57,7 +58,7 @@ final class QrCheckoutPage {
                     <form method="post" action="/checkout/%s/expire"><button class="button secondary" type="submit">Mô phỏng hết hạn</button></form>
                   </div>
                 </details>
-                """.formatted(scenarioPicker, safeId, safeId) : "";
+                """.formatted(extraTest, safeId, safeId) : "";
         return TEMPLATE
                 .replace("__MERCHANT__", HtmlUtils.htmlEscape(v.merchantName(), "UTF-8"))
                 .replace("__METHOD__", HtmlUtils.htmlEscape(methodTitle(v.method()), "UTF-8"))
@@ -67,7 +68,7 @@ final class QrCheckoutPage {
                 .replace("__QR__", qrPanel)
                 .replace("__ACTION__", paymentAction)
                 .replace("__TEST_CONTROLS__", testControls)
-                .replace("__SCRIPT__", googlePay ? GOOGLE_PAY_SCRIPT : "");
+                .replace("__SCRIPT__", hasCustom ? custom.script() : "");
     }
 
     private static String methodTitle(String method) {
@@ -79,51 +80,6 @@ final class QrCheckoutPage {
             default -> method;
         };
     }
-
-    /**
-     * Nút Google Pay CHÍNH THỨC (pay.js của Google), không phải sheet tự vẽ. Số tiền/tiền tệ lấy từ đơn trên server
-     * (data-amount), không hardcode. Token chỉ được gửi về gateway, không ghi vào console/log.
-     */
-    private static final String GOOGLE_PAY_SCRIPT = """
-            <script>
-            (function(){
-              var root=document.getElementById('gpay'), msg=document.getElementById('gpay-msg'), busy=false, client;
-              var base={apiVersion:2,apiVersionMinor:0};
-              var method={type:'CARD',parameters:{allowedAuthMethods:['PAN_ONLY','CRYPTOGRAM_3DS'],allowedCardNetworks:['VISA','MASTERCARD']},
-                tokenizationSpecification:{type:'PAYMENT_GATEWAY',parameters:{gateway:'example',gatewayMerchantId:'exampleGatewayMerchantId'}}};
-              function say(t){msg.textContent=t||'';}
-              function pay(){
-                if(busy) return; busy=true; say('Đang mở Google Pay…');
-                var req=Object.assign({},base,{allowedPaymentMethods:[method],merchantInfo:{merchantName:root.dataset.merchant},
-                  transactionInfo:{totalPriceStatus:'FINAL',totalPrice:root.dataset.amount,currencyCode:'VND',countryCode:'VN'}});
-                client.loadPaymentData(req).then(function(pd){
-                  say('Đang xử lý thanh toán…');
-                  var pick=document.getElementById('gpay-scenario');
-                  return fetch('/checkout/'+root.dataset.trade+'/google-pay',{method:'POST',headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({token:pd.paymentMethodData.tokenizationData.token,scenario:pick?pick.value:null})})
-                    .then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j};});});
-                }).then(function(res){
-                  if(!res.ok) throw new Error(res.body&&res.body.message||'Thanh toán thất bại');
-                  if(res.body.status==='PENDING'){busy=false; say('Ngân hàng chưa phản hồi. Giao dịch vẫn đang chờ, bạn có thể thử lại.'); return;}
-                  location.assign(res.body.redirectUrl);
-                }).catch(function(e){
-                  busy=false;
-                  say(e&&e.statusCode==='CANCELED' ? 'Bạn đã hủy thanh toán Google Pay.' : (e&&e.message)||'Không thể hoàn tất thanh toán Google Pay.');
-                });
-              }
-              window.initGooglePay=function(){
-                client=new google.payments.api.PaymentsClient({environment:root.dataset.env});
-                client.isReadyToPay(Object.assign({},base,{allowedPaymentMethods:[method]})).then(function(r){
-                  if(!r.result){say('Google Pay không khả dụng trên trình duyệt này. Hãy đăng nhập tài khoản Google hoặc chọn phương thức khác.');return;}
-                  root.appendChild(client.createButton({buttonType:'pay',buttonColor:'black',buttonSizeMode:'fill',onClick:pay})); say('');
-                }).catch(function(){say('Không kiểm tra được Google Pay.');});
-              };
-              say('Đang tải Google Pay…');
-            })();
-            </script>
-            <script async src="https://pay.google.com/gp/p/js/pay.js" onload="initGooglePay()"
-              onerror="document.getElementById('gpay-msg').textContent='Không tải được Google Pay (kiểm tra kết nối mạng).'"></script>
-            """;
 
     private static final String TEMPLATE = """
                 <!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
