@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: payment_lab
       POSTGRES_PASSWORD: payment_lab
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - payment-lab-postgres:/var/lib/postgresql/data
 volumes:

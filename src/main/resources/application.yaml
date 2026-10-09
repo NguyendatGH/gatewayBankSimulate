@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: "optional:file:.env[.properties]"
   application:
     name: bankSimulate
   datasource:
@@ -16,6 +18,33 @@ gateway:
   master-key: ${GATEWAY_MASTER_KEY:}
   public-base-url: ${GATEWAY_PUBLIC_BASE_URL:http://localhost:8090}
   payout-balance: ${GATEWAY_PAYOUT_BALANCE:100000000}
+  bank-callback-secret: ${GATEWAY_BANK_CALLBACK_SECRET:sandbox-bank-callback-secret}
+  mock-bank:
+    base-url: ${GATEWAY_MOCK_BANK_URL:http://localhost:8090}
+    bank-a:
+      base-url: ${GATEWAY_MOCK_BANK_A_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
+    bank-b:
+      base-url: ${GATEWAY_MOCK_BANK_B_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
+    connect-timeout: ${GATEWAY_MOCK_BANK_CONNECT_TIMEOUT:PT3S}
+    read-timeout: ${GATEWAY_MOCK_BANK_READ_TIMEOUT:PT20S}
+  card:
+    auth-ttl: ${GATEWAY_CARD_AUTH_TTL:PT15M}
+    expiry-interval: ${GATEWAY_CARD_EXPIRY_INTERVAL:PT60S}
+  qr:
+    expiry-interval: ${GATEWAY_QR_EXPIRY_INTERVAL:PT60S}
+  google-pay:
+    enabled: ${GATEWAY_GOOGLE_PAY_ENABLED:true}
+    environment: ${GATEWAY_GOOGLE_PAY_ENVIRONMENT:TEST}
+    sandbox-scenarios-enabled: ${GATEWAY_GOOGLE_PAY_SCENARIOS:true}
+    default-scenario: ${GATEWAY_GOOGLE_PAY_DEFAULT_SCENARIO:APPROVED}
+  defaults:
+    acquirers: ${GATEWAY_DEFAULT_ACQUIRERS:bank-a,bank-b,QR_PROVIDER_A}
+    terminal:
+      channel: ${GATEWAY_DEFAULT_CHANNEL:WEB}
+      currency: ${GATEWAY_DEFAULT_CURRENCY:VND}
+      payment-methods: ${GATEWAY_DEFAULT_METHODS:CARD,QR}
+      three-ds-policy: ${GATEWAY_DEFAULT_3DS:OPTIONAL}
+      routing-profile: ${GATEWAY_DEFAULT_PROFILE:STANDARD}
   seed:
     enabled: ${GATEWAY_SEED_ENABLED:false}
 server:
