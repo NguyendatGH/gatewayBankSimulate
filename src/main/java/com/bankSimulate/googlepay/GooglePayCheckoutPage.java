@@ -5,10 +5,7 @@ import com.bankSimulate.infrastructure.web.QrCheckoutPage;
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.HtmlUtils;
 
-/**
- * Trang thanh toán Google Pay: thay nút "Xác nhận thanh toán" giả của QR bằng nút Google Pay chính thức. Khung trang,
- * CSS và nút mô phỏng thất bại / hết hạn dùng chung với {@link QrCheckoutPage}; ở đây chỉ cung cấp phần riêng.
- */
+
 @Component
 public class GooglePayCheckoutPage {
 
@@ -18,7 +15,6 @@ public class GooglePayCheckoutPage {
         this.bank = bank;
     }
 
-    /** Chỉ giao dịch Google Pay còn PENDING dùng trang này; đã chốt thì dùng trang QR chung (hiện kết quả). */
     public boolean supports(QrPaymentService.CheckoutView v) {
         return "GOOGLE_PAY".equals(v.method()) && v.pending();
     }
@@ -28,14 +24,12 @@ public class GooglePayCheckoutPage {
         String status = "<div class=\"flow-card\"><span class=\"flow-icon\" aria-hidden=\"true\">G</span><div><strong>"
                 + "Thanh toán bằng Google Pay</strong><p>Bấm nút Google Pay, chọn thẻ thử nghiệm trong cửa sổ của Google. "
                 + "Ngân hàng mô phỏng sẽ duyệt giao dịch.</p></div></div>";
-        // Số tiền lấy từ đơn trên server, không hardcode ở JS; tiền tệ VND, quốc gia VN.
         String action = "<div id=\"gpay\" data-trade=\"" + id + "\" data-env=\"" + HtmlUtils.htmlEscape(bank.environment(), "UTF-8")
                 + "\" data-merchant=\"" + HtmlUtils.htmlEscape(v.merchantName(), "UTF-8") + "\" data-amount=\"" + v.amount()
                 + "\"></div><p id=\"gpay-msg\" class=\"otp-error\" role=\"alert\" aria-live=\"polite\"></p>";
         return QrCheckoutPage.renderWith(v, new QrCheckoutPage.Slots(status, action, scenarioPicker(), SCRIPT));
     }
 
-    /** Chỉ hiện khi bật điều khiển kịch bản (sandbox); production tắt thì luôn dùng kịch bản mặc định. */
     private String scenarioPicker() {
         return bank.scenariosEnabled() ? """
                   <label class="otp-label" for="gpay-scenario" style="margin-top:12px">Kịch bản ngân hàng mô phỏng (chỉ sandbox)</label>
@@ -47,10 +41,7 @@ public class GooglePayCheckoutPage {
                 """ : "";
     }
 
-    /**
-     * Nút Google Pay CHÍNH THỨC (pay.js của Google), không phải sheet tự vẽ. Số tiền/tiền tệ lấy từ đơn trên server
-     * (data-amount), không hardcode. Token chỉ được gửi về gateway, không ghi vào console/log.
-     */
+
     private static final String SCRIPT = """
             <script>
             (function(){

@@ -22,12 +22,6 @@ import java.util.Set;
 @Configuration
 public class DevelopmentSeed {
 
-    public static final String BANK_A = "bank-a";
-    public static final String BANK_B = "bank-b";
-    public static final String QR_PROVIDER = "QR_PROVIDER_A";
-    public static final String PROFILE_VIA_BANK_A = "CARD_VIA_BANK_A";
-    public static final String PROFILE_VIA_BANK_B = "CARD_VIA_BANK_B";
-
     public static final String PROFILE_STANDARD = "STANDARD";
 
     private static final Logger log = LoggerFactory.getLogger(DevelopmentSeed.class);
@@ -59,41 +53,36 @@ public class DevelopmentSeed {
 
         @Transactional
         void run() {
-            Acquirer bankA = acquirer(BANK_A, "Mock Bank A (có 3DS)", EnumSet.of(PaymentMethod.CARD), true);
-            Acquirer bankB = acquirer(BANK_B, "Mock Bank B (trả kết quả thẳng)", EnumSet.of(PaymentMethod.CARD), false);
-            Acquirer qr = acquirer(QR_PROVIDER, "Mock QR Provider A", EnumSet.of(PaymentMethod.QR), false);
-            acquirer("ACQUIRER_A", "Mock Acquirer A",
-                    EnumSet.of(PaymentMethod.CARD, PaymentMethod.PAYNOW, PaymentMethod.GOOGLE_PAY, PaymentMethod.APPLE_PAY), true);
-            acquirer("ACQUIRER_B", "Mock Acquirer B",
-                    EnumSet.of(PaymentMethod.CARD, PaymentMethod.PAYNOW, PaymentMethod.GOOGLE_PAY, PaymentMethod.APPLE_PAY), true);
-
-            bank("MBB", "MB Bank", "970422", EnumSet.of(PaymentMethod.QR), false);
-            bank("VCB", "Vietcombank", "970436", EnumSet.of(PaymentMethod.CARD, PaymentMethod.QR), true);
-            bank("VTB", "VietinBank", "970415",
+            Acquirer mbb = bank("MBB", "MB Bank", "970422", EnumSet.of(PaymentMethod.QR), false);
+            Acquirer vcb = bank("VCB", "Vietcombank", "970436", EnumSet.of(PaymentMethod.CARD, PaymentMethod.QR), true);
+            Acquirer vtb = bank("VTB", "VietinBank", "970415",
                     EnumSet.of(PaymentMethod.CARD, PaymentMethod.QR, PaymentMethod.PAYNOW), false);
-            bank("TCB", "Techcombank", "970407",
+            Acquirer tcb = bank("TCB", "Techcombank", "970407",
                     EnumSet.of(PaymentMethod.CARD, PaymentMethod.QR, PaymentMethod.GOOGLE_PAY, PaymentMethod.APPLE_PAY), true);
 
-            RoutingProfile viaA = profile(PROFILE_VIA_BANK_A, "Card via bank-a (3DS)");
-            rule(viaA, PaymentMethod.CARD, bankA, 1);
-            RoutingProfile viaB = profile(PROFILE_VIA_BANK_B, "Card via bank-b (non-3DS)");
-            rule(viaB, PaymentMethod.CARD, bankB, 1);
-            RoutingProfile standard = profile(PROFILE_STANDARD, "Thẻ + QR (mặc định)");
-            rule(standard, PaymentMethod.CARD, bankA, 1);
-            rule(standard, PaymentMethod.CARD, bankB, 2);
-            rule(standard, PaymentMethod.QR, qr, 1);
+            RoutingProfile standard = profile(PROFILE_STANDARD, "Mặc định (4 ngân hàng)");
+            rule(standard, PaymentMethod.CARD, vcb, 1);
+            rule(standard, PaymentMethod.CARD, tcb, 2);
+            rule(standard, PaymentMethod.CARD, vtb, 3);
+            rule(standard, PaymentMethod.QR, mbb, 1);
+            rule(standard, PaymentMethod.QR, vcb, 2);
+            rule(standard, PaymentMethod.QR, vtb, 3);
+            rule(standard, PaymentMethod.QR, tcb, 4);
+            rule(standard, PaymentMethod.PAYNOW, vtb, 1);
+            rule(standard, PaymentMethod.GOOGLE_PAY, tcb, 1);
+            rule(standard, PaymentMethod.APPLE_PAY, tcb, 1);
 
             for (Merchant merchant : merchants.findAll()) {
-                for (Acquirer acquirer : List.of(bankA, bankB, qr)) merchantAcquirer(merchant, acquirer);
+                for (Acquirer acquirer : List.of(mbb, vcb, vtb, tcb)) merchantAcquirer(merchant, acquirer);
             }
         }
 
-        private void bank(String code, String name, String bin, Set<PaymentMethod> methods, boolean threeDs) {
+        private Acquirer bank(String code, String name, String bin, Set<PaymentMethod> methods, boolean threeDs) {
             Acquirer bank = acquirer(code, name, methods, threeDs);
-            if (bank.getBankBin() != null || acquirers.findAll().stream().anyMatch(a -> bin.equals(a.getBankBin()))) return;
+            if (bank.getBankBin() != null || acquirers.findAll().stream().anyMatch(a -> bin.equals(a.getBankBin()))) return bank;
             bank.changeBankBin(bin);
-            acquirers.save(bank);
             log.info("[seed] bank {} selectable by organizers with BIN {}", code, bin);
+            return acquirers.save(bank);
         }
 
         private Acquirer acquirer(String code, String name, Set<PaymentMethod> methods, boolean threeDs) {

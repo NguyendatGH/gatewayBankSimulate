@@ -95,7 +95,9 @@ public class QrPaymentService {
         }
         QrRow created = row(tradeNo, false);
         tagLog(created);
-        log.info("Payment created: paymentMethod={} acquirer={} amount={}", method, acquirer, request.amount());
+        
+        log.info("Payment created: paymentMethod={} acquirer={} amount={} returnUrl={} cancelUrl={} webhookUrl={}",
+        method, acquirer, request.amount(), request.returnUrl(), request.cancelUrl(), access.merchant().getWebhookUrl());
         return response(created);
     }
 
@@ -127,10 +129,6 @@ public class QrPaymentService {
                 "PAID".equals(p.status()) ? p.returnUrl() : p.cancelUrl(), qrPayload(p));
     }
 
-    /**
-     * Trạng thái hiện tại của một giao dịch cho các luồng thanh toán riêng của từng phương thức (ví dụ Google Pay)
-     * cần kiểm tra trước khi chốt. Hết hạn thì chốt EXPIRED trước, nên trạng thái trả về là trạng thái thật.
-     */
     public PaymentState state(String tradeNo) {
         expireIfDue(tradeNo);
         QrRow p = require(tradeNo);

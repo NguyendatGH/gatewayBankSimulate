@@ -10,12 +10,6 @@ public final class QrCheckoutPage {
 
     private QrCheckoutPage() {
     }
-
-    /**
-     * Các "khe" mà trang của một phương thức riêng (ví dụ Google Pay) được thay vào khi giao dịch còn PENDING:
-     * khối giải thích, khối hành động (nút thanh toán), phần thêm trong mục kiểm thử sandbox, và script cuối trang.
-     * Khung trang, CSS và nút "Mô phỏng thất bại / hết hạn" vẫn dùng chung.
-     */
     public record Slots(String status, String action, String extraTestControls, String script) {}
 
     static String render(QrPaymentService.CheckoutView v) {

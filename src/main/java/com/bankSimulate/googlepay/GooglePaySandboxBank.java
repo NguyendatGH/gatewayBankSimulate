@@ -6,11 +6,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.Locale;
 
-/**
- * "Ngân hàng" mô phỏng cho Google Pay. Token Google Pay TEST (gateway "example") chỉ là dữ liệu mẫu, nên KHÔNG giải mã
- * và KHÔNG coi việc có token là bằng chứng ngân hàng duyệt. Kết quả đến từ kịch bản:
- * trang checkout chọn kịch bản khi {@code sandbox-scenarios-enabled=true}, còn tắt thì luôn dùng {@code default-scenario}.
- */
 @Component
 public class GooglePaySandboxBank {
 
@@ -45,7 +40,6 @@ public class GooglePaySandboxBank {
         return scenariosEnabled;
     }
 
-    /** Tắt điều khiển kịch bản thì bỏ qua mọi giá trị client gửi lên. */
     public Scenario resolve(String requested) {
         if (!scenariosEnabled || requested == null || requested.isBlank()) return defaultScenario;
         try {

@@ -21,6 +21,12 @@ public class TerminalAdminController {
         return service.create(merNo, request);
     }
 
+    @PutMapping("/merchants/{merNo}/default-terminal")
+    public AdminDtos.TerminalResponse setDefault(@PathVariable String merNo,
+                                                 @Valid @RequestBody AdminDtos.DefaultTerminalRequest request) {
+        return service.setDefault(merNo, request.terminalId());
+    }
+
     @GetMapping("/merchants/{merNo}/terminals")
     public List<AdminDtos.TerminalResponse> list(@PathVariable String merNo) {
         return service.list(merNo);

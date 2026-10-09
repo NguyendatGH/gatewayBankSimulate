@@ -1,6 +1,7 @@
 package com.bankSimulate.domain.terminal;
 import com.bankSimulate.domain.enums.Channel;
 import com.bankSimulate.domain.enums.Status;
+import com.bankSimulate.domain.enums.TerminalPurpose;
 import com.bankSimulate.domain.enums.ThreeDsPolicy;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -53,6 +54,16 @@ public class Terminal {
     @Column(nullable = false)
     private Status status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private TerminalPurpose purpose;
+
+    @Column(name = "channel_opened_at")
+    private Instant channelOpenedAt;
+
+    @Column(name = "retired_at")
+    private Instant retiredAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -73,6 +84,7 @@ public class Terminal {
         this.threeDsPolicy = threeDsPolicy;
         this.routingProfileId = routingProfileId;
         this.status = Status.ACTIVE;
+        this.purpose = TerminalPurpose.SPARE;
         this.createdAt = Instant.now();
         this.updatedAt = createdAt;
     }
@@ -113,4 +125,40 @@ public class Terminal {
         return settlementBankBin != null && settlementAccountNumber != null;
     }
 
+
+    public boolean isChannel() {
+        return purpose == TerminalPurpose.CHANNEL;
+    }
+
+    public boolean isRetired() {
+        return retiredAt != null;
+    }
+
+    public boolean isLive() {
+        return status == Status.ACTIVE && retiredAt == null;
+    }
+
+    public void makeDefault() {
+        this.purpose = TerminalPurpose.DEFAULT;
+        this.channelOpenedAt = null;
+        this.retiredAt = null;
+        this.updatedAt = Instant.now();
+    }
+
+    public void makeSpare() {
+        this.purpose = TerminalPurpose.SPARE;
+        this.updatedAt = Instant.now();
+    }
+
+    public void openAsChannel(Instant openedAt) {
+        this.purpose = TerminalPurpose.CHANNEL;
+        this.channelOpenedAt = openedAt;
+        this.retiredAt = null;
+        this.updatedAt = Instant.now();
+    }
+
+    public void retire() {
+        this.retiredAt = Instant.now();
+        this.updatedAt = retiredAt;
+    }
 }

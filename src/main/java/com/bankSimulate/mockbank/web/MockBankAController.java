@@ -1,5 +1,4 @@
 package com.bankSimulate.mockbank.web;
-
 import com.bankSimulate.domain.common.ApiException;
 import com.bankSimulate.infrastructure.logging.GatewayLogContext;
 import com.bankSimulate.infrastructure.security.CallbackSigner;

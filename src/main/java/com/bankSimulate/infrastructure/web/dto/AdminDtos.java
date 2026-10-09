@@ -16,7 +16,8 @@ public final class AdminDtos {
     }
 
     public record MerchantResponse(String merNo, String name, String status, String webhookUrl,
-                                   String externalReference, SettlementAccountResponse settlementAccount) {
+                                   String externalReference, SettlementAccountResponse settlementAccount,
+                                   String defaultTerminalId, List<String> channelTerminalIds) {
     }
 
     public record SettlementAccountRequest(@NotBlank String bankBin, @NotBlank String accountNumber, String accountName) {
@@ -70,7 +71,11 @@ public final class AdminDtos {
     public record TerminalResponse(String terminalId, String merNo, String name, String channel, String currency,
                                    List<String> paymentMethods, String threeDsPolicy, String routingProfileCode,
                                    String status, RoutingProfileSummary routingProfile, List<String> routableMethods,
-                                   String acquirerCode, SettlementAccountResponse settlementAccount) {
+                                   String acquirerCode, SettlementAccountResponse settlementAccount,
+                                   String purpose, boolean retired) {
+    }
+
+    public record DefaultTerminalRequest(@NotBlank String terminalId) {
     }
 
     public record RoutingProfileSummary(String code, String name, String status,

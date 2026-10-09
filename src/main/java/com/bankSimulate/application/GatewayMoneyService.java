@@ -204,12 +204,13 @@ public class GatewayMoneyService {
         return true;
     }
 
-    public java.util.Optional<ExistingPayment> findByOrder(UUID merchantId, UUID terminalId, String orderCode) {
+    public java.util.Optional<ExistingPayment> findByOrder(UUID merchantId, String orderCode) {
         return java.util.Optional.ofNullable(jdbc.query("""
                 SELECT provider_payment_id, payment_method FROM payment_transactions
-                WHERE merchant_id = ? AND terminal_id = ? AND order_code = ?
+                WHERE merchant_id = ? AND order_code = ?
+                ORDER BY created_at LIMIT 1
                 """, rs -> rs.next() ? new ExistingPayment(rs.getString(1), rs.getString(2)) : null,
-                merchantId, terminalId, orderCode));
+                merchantId, orderCode));
     }
 
     public record ExistingPayment(String providerPaymentId, String paymentMethod) {}

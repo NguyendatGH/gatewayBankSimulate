@@ -16,25 +16,29 @@ public class GatewayRuntimeService {
     private final QrPaymentService qr;
     private final GatewayMoneyService money;
     private final GooglePaySandboxBank googlePay;
+    private final TerminalResolver resolver;
 
     public GatewayRuntimeService(TerminalPaymentMethodRepository methods, CardPaymentService cards, QrPaymentService qr,
-                                 GatewayMoneyService money, GooglePaySandboxBank googlePay) {
+                                 GatewayMoneyService money, GooglePaySandboxBank googlePay, TerminalResolver resolver) {
         this.methods = methods;
         this.cards = cards;
         this.qr = qr;
         this.money = money;
         this.googlePay = googlePay;
+        this.resolver = resolver;
     }
 
-    public GatewayRuntimeDtos.PaymentResponse createPayment(GatewayRuntimeAuth.Access access,
+    public GatewayRuntimeDtos.PaymentResponse createPayment(GatewayRuntimeAuth.Access authenticated,
                                                             GatewayRuntimeDtos.CreatePaymentRequest request) {
+        GatewayRuntimeAuth.Access access = authenticated;
         GatewayLogContext.setOrderNo(Long.toString(request.orderCode()));
         PaymentMethod selected = parseMethod(request.paymentMethod());
         if (selected == PaymentMethod.GOOGLE_PAY && !googlePay.enabled())
             throw new ApiException(409, "PAYMENT_METHOD_NOT_ENABLED", "GOOGLE_PAY is disabled on this gateway");
+        if (access.terminal() == null) access = access.withTerminal(resolver.forPayment(access.merchant(), selected));
         if (!methods.existsByTerminalIdAndPaymentMethod(access.terminal().getId(), selected))
             throw new ApiException(409, "PAYMENT_METHOD_NOT_ENABLED", selected + " is not enabled on terminal");
-        money.findByOrder(access.merchant().getId(), access.terminal().getId(), Long.toString(request.orderCode()))
+        money.findByOrder(access.merchant().getId(), Long.toString(request.orderCode()))
                 .filter(existing -> !existing.paymentMethod().equals(selected.name()))
                 .ifPresent(existing -> {
                     throw new ApiException(409, "ORDER_CODE_ALREADY_USED", "orderCode " + request.orderCode()

@@ -96,10 +96,13 @@ public class CardPaymentService {
                     + " amount=" + request.amount() + " cardSupplied=" + request.hasCard());
         });
 
+        log.info("Payment created: paymentMethod=CARD acquirer={} amount={} returnUrl={} webhookUrl={}",
+        bank.acquirerCode(), request.amount(), request.returnUrl(), webhookUrlFor(access, request));
+
         if (!request.hasCard()) {
             return new CardPaymentDtos.CreateResponse(gwTxnId, null, GateWayTransactionStatus.CREATED.name(),
                     publicBaseUrl + "/card-checkout/" + gwTxnId, null, null, null,
-                    "Chuyển chủ thẻ sang checkoutUrl để nhập thẻ");
+                    "redirect user to card checkout page");
         }
 
         String redirectUrl = authorizeWithBank(gwTxnId, request.pan(), request.expiryMonth(),
@@ -116,7 +119,7 @@ public class CardPaymentService {
 
     public CardPaymentDtos.StatusResponse status(GatewayRuntimeAuth.Access access, String gwTxnId) {
         GatewayTransaction txn = owned(access, gwTxnId);
-        tagLog(access.merchant().getMerNo(), access.terminal().getTerminalId(), txn);
+        tagLog(txn);
         return new CardPaymentDtos.StatusResponse(txn.getGwTxnId(), txn.getOrderCode(), txn.getAmount(),
                 txn.getResultCode(), txn.getStatus().name(), txn.getBankCode(), txn.getBankRef(),
                 txn.getAuthCode(), txn.getCardBrand(), txn.getCardMasked(), txn.getFailureReason(), txn.getPaidAt());
@@ -130,7 +133,7 @@ public class CardPaymentService {
                                                                          String tradeNo) {
         return transactions.findByGwTxnId(tradeNo).map(txn -> {
             requireOwner(access, txn);
-            tagLog(access.merchant().getMerNo(), access.terminal().getTerminalId(), txn);
+            tagLog(txn);
             boolean paid = txn.getStatus() == GateWayTransactionStatus.SUCCESS;
             return new GatewayRuntimeDtos.PaymentStatusResponse(paymentStatusOf(txn), paid ? txn.getAmount() : 0,
                     txn.getBankRef(), txn.getPaidAt());
@@ -250,21 +253,21 @@ public class CardPaymentService {
                 } catch (ApiException failure) {
                     lastFailure = failure;
                     if (!BankFailure.canTryAnotherBank(failure.getCode())) {
-                        log.warn("Bank {} lỗi {} — KHÔNG được thử bank khác, chốt FAILED luôn",
+                        log.warn("Bank {} error {} — Fail immediately",
                                 bank.acquirerCode(), failure.getCode());
                         failNow(gwTxnId, failure.getMessage());
                         throw failure;
                     }
                     String nextBank = i + 1 < chain.size() ? chain.get(i + 1).acquirerCode() : null;
-                    log.warn("Bank {} không nhận được lệnh ({}) — {}", bank.acquirerCode(), failure.getCode(),
-                            nextBank == null ? "hết bank để thử" : "chuyển sang " + nextBank);
+                    log.warn("Bank {} not receive any command ({}) — {}", bank.acquirerCode(), failure.getCode(),
+                            nextBank == null ? "All bank is suspended" : "move to " + nextBank);
                     noteFailover(gwTxnId, bank.acquirerCode(), failure, nextBank);
                 }
             }
         }
 
         if (answered == null) {
-            String reason = "Đã thử " + chain.size() + " bank, không bank nào nhận được lệnh. Lỗi cuối: "
+            String reason = "Đã thử " + chain.size() + " bank, none of those bank received command, final decision: "
                     + (lastFailure == null ? "-" : lastFailure.getMessage());
             log.error("{}", reason);
             failNow(gwTxnId, reason);

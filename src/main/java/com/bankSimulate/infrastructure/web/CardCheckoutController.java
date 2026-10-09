@@ -31,10 +31,7 @@ public class CardCheckoutController {
         this.acquirers = acquirers;
     }
 
-    /**
-     * Quy tắc thẻ test khác nhau theo loại ngân hàng (xem ThreeDsMockBank / DirectMockBank), nên gợi ý cũng phải khác:
-     * ngân hàng có 3DS: …1000 hỏi OTP, …2000 duyệt thẳng; ngân hàng không 3DS: chỉ …1000 được duyệt.
-     */
+
     private String testCardHint(String bankCode) {
         boolean threeDs = acquirers.findByCode(bankCode).map(Acquirer::isThreeDsSupported).orElse(false);
         return threeDs

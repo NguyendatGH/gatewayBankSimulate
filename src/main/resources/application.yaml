@@ -21,10 +21,13 @@ gateway:
   bank-callback-secret: ${GATEWAY_BANK_CALLBACK_SECRET:sandbox-bank-callback-secret}
   mock-bank:
     base-url: ${GATEWAY_MOCK_BANK_URL:http://localhost:8090}
-    bank-a:
-      base-url: ${GATEWAY_MOCK_BANK_A_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
-    bank-b:
-      base-url: ${GATEWAY_MOCK_BANK_B_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
+    # Khóa = mã acquirer đúng như trong DB. Trỏ một ngân hàng sang cổng không ai nghe để mô phỏng nó sập (thử failover).
+    VCB:
+      base-url: ${GATEWAY_MOCK_BANK_VCB_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
+    TCB:
+      base-url: ${GATEWAY_MOCK_BANK_TCB_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
+    VTB:
+      base-url: ${GATEWAY_MOCK_BANK_VTB_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
     connect-timeout: ${GATEWAY_MOCK_BANK_CONNECT_TIMEOUT:PT3S}
     read-timeout: ${GATEWAY_MOCK_BANK_READ_TIMEOUT:PT20S}
   card:
@@ -38,7 +41,7 @@ gateway:
     sandbox-scenarios-enabled: ${GATEWAY_GOOGLE_PAY_SCENARIOS:true}
     default-scenario: ${GATEWAY_GOOGLE_PAY_DEFAULT_SCENARIO:APPROVED}
   defaults:
-    acquirers: ${GATEWAY_DEFAULT_ACQUIRERS:bank-a,bank-b,QR_PROVIDER_A}
+    acquirers: ${GATEWAY_DEFAULT_ACQUIRERS:MBB,VCB,VTB,TCB}
     terminal:
       channel: ${GATEWAY_DEFAULT_CHANNEL:WEB}
       currency: ${GATEWAY_DEFAULT_CURRENCY:VND}
