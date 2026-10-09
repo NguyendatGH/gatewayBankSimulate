@@ -31,33 +31,31 @@ public class GatewayRuntimeAuth {
         this.cipher = cipher;
     }
 
-    public Access authenticate(String merNo, String terminalId, String suppliedSecret) {
+    public Access authenticateMerchant(String merNo, String suppliedSecret) {
         Merchant merchant = merchants.require(merNo);
         log.info("Xác thực merchant name='{}' status={}", merchant.getName(), merchant.getStatus());
-
         if (merchant.getStatus() != Status.ACTIVE) {
             throw new ApiException(409, "MERCHANT_INACTIVE", "Merchant is inactive");
         }
-
-        Terminal terminal = terminals.findByTerminalId(terminalId).orElseThrow(() -> new ApiException(404, "TERMINAL_NOT_FOUND", "Terminal " + terminalId + " not found"));
-
-        if (!terminal.getMerchantId().equals(merchant.getId())) {
-            throw new ApiException(403, "TERMINAL_NOT_OWNED", "Terminal does not belong to merchant");
-        }
-
-        if (terminal.getStatus() != Status.ACTIVE) {
-            throw new ApiException(409, "TERMINAL_INACTIVE", "Terminal is inactive");
-        }
-
         MerchantCredential credential = credentials.findFirstByMerchantIdAndStatus(merchant.getId(), CredentialStatus.ACTIVE).orElseThrow(() -> new ApiException(401, "INVALID_MERCHANT_CREDENTIAL", "Merchant credential is invalid"));
-
         String expectedSecret = cipher.decrypt(credential.getSecretCiphertext());
-
         if (suppliedSecret == null || !MessageDigest.isEqual(expectedSecret.getBytes(StandardCharsets.UTF_8), suppliedSecret.getBytes(StandardCharsets.UTF_8))) {
             throw new ApiException(401, "INVALID_MERCHANT_CREDENTIAL", "Merchant credential is invalid");
         }
+        return new Access(merchant, null, expectedSecret);
+    }
 
-        return new Access(merchant, terminal, expectedSecret);
+    public Access authenticate(String merNo, String terminalId, String suppliedSecret) {
+        Access access = authenticateMerchant(merNo, suppliedSecret);
+        Merchant merchant = access.merchant();
+        Terminal terminal = terminals.findByTerminalId(terminalId).orElseThrow(() -> new ApiException(404, "TERMINAL_NOT_FOUND", "Terminal " + terminalId + " not found"));
+        if (!terminal.getMerchantId().equals(merchant.getId())) {
+            throw new ApiException(403, "TERMINAL_NOT_OWNED", "Terminal does not belong to merchant");
+        }
+        if (terminal.getStatus() != Status.ACTIVE) {
+            throw new ApiException(409, "TERMINAL_INACTIVE", "Terminal is inactive");
+        }
+        return access.withTerminal(terminal);
     }
 
     public String activeSecret(Merchant merchant) {
@@ -70,5 +68,8 @@ public class GatewayRuntimeAuth {
     }
 
     public record Access(Merchant merchant, Terminal terminal, String secret) {
+        public Access withTerminal(Terminal chosen) {
+            return new Access(merchant, chosen, secret);
+        }
     }
 }

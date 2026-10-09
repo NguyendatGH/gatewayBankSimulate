@@ -96,6 +96,7 @@ public class TerminalService {
         Channel channel = request.channel() == null ? null : ConfigParsers.enumValue(Channel.class, request.channel(), "INVALID_CHANNEL");
         String currency = request.currency() == null ? null : ConfigParsers.currency(request.currency());
         Status status = request.status() == null ? null : ConfigParsers.enumValue(Status.class, request.status(), "INVALID_STATUS");
+        if (status == Status.INACTIVE && t.getStatus() == Status.ACTIVE) requireNotInUse(t, m);
         t.update(name == null ? null : name.trim(), channel, currency, status);
         if (t.getStatus() == Status.ACTIVE) validateActive(t, enabled(t));
         return response(t, m, enabled(t));
@@ -172,10 +173,49 @@ public class TerminalService {
         return response(t, m, enabled(t));
     }
 
+    private void requireNotInUse(Terminal t, Merchant m) {
+        if (t.isChannel() && !t.isRetired())
+            throw new ApiException(409, "TERMINAL_IN_USE",
+                    "Terminal này là một kênh nhận tiền ban tổ chức đang mở. Ban tổ chức phải xóa kênh đó trước.");
+        boolean hasLiveChannel = terminals.findAllByMerchantId(m.getId()).stream().anyMatch(c -> c.isChannel() && c.isLive());
+        if (t.getPurpose() == TerminalPurpose.DEFAULT && !hasLiveChannel)
+            throw new ApiException(409, "TERMINAL_IN_USE",
+                    "Đây là terminal mặc định, đang nhận đơn vì merchant chưa có kênh nào. Chọn terminal mặc định khác trước rồi mới tắt.");
+    }
+
+    @Transactional
+    public AdminDtos.TerminalResponse setDefault(String merNo, String terminalId) {
+        Merchant m = activeMerchant(merNo);
+        Terminal t = require(terminalId);
+        if (!t.getMerchantId().equals(m.getId()))
+            throw new ApiException(403, "TERMINAL_NOT_OWNED", "Terminal does not belong to merchant");
+        if (t.isChannel() && !t.isRetired())
+            throw new ApiException(409, "TERMINAL_IS_CHANNEL", "Terminal này là kênh nhận tiền, không đặt làm mặc định được");
+        if (t.getStatus() != Status.ACTIVE) throw new ApiException(409, "TERMINAL_INACTIVE", "Terminal is inactive");
+        validateActive(t, enabled(t));
+        terminals.findFirstByMerchantIdAndPurpose(m.getId(), TerminalPurpose.DEFAULT)
+                .filter(old -> !old.getId().equals(t.getId()))
+                .ifPresent(old -> {
+                    old.makeSpare();
+                    terminals.saveAndFlush(old);
+                });
+        t.makeDefault();
+        terminals.saveAndFlush(t);
+        try (GatewayLogContext.Scope ignored = GatewayLogContext.open(merNo, t.getTerminalId(), null)) {
+            log.info("Terminal mặc định của merchant đổi sang {}", t.getTerminalId());
+        }
+        return response(t, m, enabled(t));
+    }
+
     private Merchant activeMerchant(String merNo) {
         Merchant m = merchantService.require(merNo);
         if (m.getStatus() != Status.ACTIVE) throw new ApiException(409, "MERCHANT_INACTIVE", "Merchant is inactive");
         return m;
+    }
+
+    @Transactional(readOnly = true)
+    public Terminal requireTerminal(String terminalId) {
+        return require(terminalId);
     }
 
     private Terminal require(String id) {
@@ -286,7 +326,8 @@ public class TerminalService {
                 routableMethods(t, m).stream().map(Enum::name).toList(),
                 t.getAcquirerId() == null ? null : acquirers.findById(t.getAcquirerId()).map(Acquirer::getCode).orElse(null),
                 t.hasSettlementAccount() ? new AdminDtos.SettlementAccountResponse(t.getSettlementBankBin(),
-                        ConfigParsers.maskAccount(t.getSettlementAccountNumber()), t.getSettlementAccountName()) : null);
+                        ConfigParsers.maskAccount(t.getSettlementAccountNumber()), t.getSettlementAccountName()) : null,
+                t.getPurpose().name(), t.isRetired());
     }
 
     private java.util.Map<String, List<AdminDtos.RouteResponse>> routesOf(RoutingProfile p) {

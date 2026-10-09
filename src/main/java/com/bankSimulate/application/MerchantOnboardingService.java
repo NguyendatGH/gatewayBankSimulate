@@ -27,7 +27,7 @@ public class MerchantOnboardingService {
     private final String defaultCurrency;
 
     public MerchantOnboardingService(MerchantService merchants, AcquirerService acquirers, TerminalService terminals,
-                                     @Value("${gateway.defaults.acquirers:bank-a,bank-b,QR_PROVIDER_A}") List<String> defaultAcquirers,
+                                     @Value("${gateway.defaults.acquirers:MBB,VCB,VTB,TCB}") List<String> defaultAcquirers,
                                      @Value("${gateway.defaults.terminal.routing-profile:STANDARD}") String defaultProfile,
                                      @Value("${gateway.defaults.terminal.payment-methods:CARD,QR}") List<String> defaultMethods,
                                      @Value("${gateway.defaults.terminal.three-ds-policy:OPTIONAL}") String defaultThreeDs,
@@ -64,6 +64,7 @@ public class MerchantOnboardingService {
         AdminDtos.TerminalResponse terminal = terminals.create(merchant.merNo(),
                 new AdminDtos.CreateTerminalRequest(request.name() + " " + channel, channel, currency,
                         defaultMethods, defaultThreeDs, defaultProfile));
+        terminals.setDefault(merchant.merNo(), terminal.terminalId());
         try (GatewayLogContext.Scope ignored = GatewayLogContext.open(merchant.merNo(), terminal.terminalId(), null)) {
             log.info("Merchant onboarded externalReference={} acquirers={} channel={} methods={} routing={}",
                     request.externalReference(), defaultAcquirers, channel, defaultMethods, defaultProfile);

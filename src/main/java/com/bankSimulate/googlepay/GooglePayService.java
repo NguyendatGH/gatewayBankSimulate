@@ -6,11 +6,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/**
- * Nhận token từ nút Google Pay chính thức. Token KHÔNG được log, KHÔNG giải mã và KHÔNG quyết định kết quả:
- * kết quả đến từ kịch bản của {@link GooglePaySandboxBank}. Chốt giao dịch đi qua đúng {@code QrPaymentService.complete}
- * nên capture/ghi sổ/webhook y hệt QR, và gọi lặp lại không capture hai lần (đơn đã chốt thì trả lại kết quả cũ).
- */
 @Service
 public class GooglePayService {
 

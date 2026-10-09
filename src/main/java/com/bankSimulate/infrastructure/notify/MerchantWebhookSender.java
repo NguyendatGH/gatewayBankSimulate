@@ -70,11 +70,12 @@ public class MerchantWebhookSender {
 
     private void post(String webhookUrl, String merchantSecret, Map<String, Object> body, String label) {
         String raw = json.writeValueAsString(body);
+        log.info("webhook ->POST {} {}", webhookUrl , label);
         try {
-            http.post().uri(webhookUrl).contentType(MediaType.APPLICATION_JSON)
-                    .header(SIGNATURE_HEADER, sign(raw, merchantSecret))
-                    .body(raw).retrieve().toBodilessEntity();
-            log.info("Webhook delivered {}", label);
+            var response = http.post().uri(webhookUrl).contentType(MediaType.APPLICATION_JSON)
+                .header(SIGNATURE_HEADER, sign(raw, merchantSecret))
+                .body(raw).retrieve().toBodilessEntity();
+            log.info("Webhook delivered {} status={} url={}", label, response.getStatusCode().value(), webhookUrl);
         } catch (RuntimeException ex) {
             log.warn("Webhook delivery failed {}: {}", label, ex.toString());
         }

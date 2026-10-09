@@ -1,3 +1,12 @@
+-- =====================================================================================================
+-- Schema BankSimulate (gateway + mock bank), MỘT migration duy nhất.
+--
+-- Gộp từ V1 (schema gốc), V2 (settlement riêng của terminal), V3 (vai trò terminal). Đã kiểm chứng bằng cách so
+-- `pg_dump` (schema + dữ liệu thẻ test) của DB dựng bằng 3 migration cũ với DB dựng bằng file này: giống hệt.
+-- Bước backfill của V3 (đặt vai trò cho terminal đã có) chỉ có ý nghĩa với DB cũ nên đã bỏ.
+-- Muốn thêm thay đổi schema thì thêm V2__..., KHÔNG sửa file này khi đã có DB chạy bằng nó.
+-- =====================================================================================================
+
 CREATE SEQUENCE merchant_number_seq START WITH 1;
 CREATE SEQUENCE terminal_number_seq START WITH 1;
 CREATE SEQUENCE trade_number_seq START WITH 1;
@@ -102,8 +111,29 @@ CREATE TABLE terminals (
     status VARCHAR(16) NOT NULL CHECK (status IN ('ACTIVE', 'INACTIVE')),
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
-    acquirer_id UUID REFERENCES acquirers(id)
+    -- Đi thẳng MỘT ngân hàng (BTC mở kênh) HOẶC theo routing_profile_id (admin dựng); loại trừ nhau, xem Terminal.useAcquirer/useRoutingProfile.
+    acquirer_id UUID REFERENCES acquirers(id),
+    -- Tài khoản nhận tiền riêng của terminal (= tài khoản của kênh). NULL = dùng tài khoản settlement của merchant.
+    settlement_bank_bin VARCHAR(6),
+    settlement_account_number VARCHAR(30),
+    settlement_account_name VARCHAR(120),
+    -- Vai trò khi nhận đơn mới:
+    --   DEFAULT : dự phòng, chỉ nhận đơn khi merchant CHƯA có kênh nào (tối đa một cái mỗi merchant)
+    --   CHANNEL : kênh nhận tiền do ban tổ chức mở (một ngân hàng + tập phương thức + tài khoản nhận tiền)
+    --   SPARE   : admin tạo thêm, không nhận đơn cho tới khi được đặt làm DEFAULT
+    purpose VARCHAR(16) NOT NULL DEFAULT 'SPARE' CHECK (purpose IN ('DEFAULT', 'CHANNEL', 'SPARE')),
+    -- Lúc mở kênh (kênh chính = kênh chưa xóa mở sớm nhất). NULL với terminal không phải kênh.
+    channel_opened_at TIMESTAMPTZ,
+    -- Kênh đã xóa: terminal vẫn ACTIVE (đơn cũ còn tra trạng thái và hoàn tiền) nhưng không nhận đơn mới.
+    retired_at TIMESTAMPTZ,
+    CONSTRAINT ck_terminals_settlement_bin
+        CHECK (settlement_bank_bin IS NULL OR settlement_bank_bin ~ '^[0-9]{6}$'),
+    CONSTRAINT ck_terminals_settlement_pair
+        CHECK ((settlement_bank_bin IS NULL) = (settlement_account_number IS NULL))
 );
+
+-- Mỗi merchant có tối đa một terminal DEFAULT.
+CREATE UNIQUE INDEX uk_terminals_one_default ON terminals(merchant_id) WHERE purpose = 'DEFAULT';
 
 CREATE TABLE terminal_payment_methods (
     terminal_id UUID NOT NULL REFERENCES terminals(id) ON DELETE CASCADE,

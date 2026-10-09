@@ -1,5 +1,4 @@
 package com.bankSimulate.mockbank.web;
-
 import com.bankSimulate.infrastructure.logging.GatewayLogContext;
 import com.bankSimulate.mockbank.DirectMockBank;
 import com.bankSimulate.mockbank.MockBankAuthorizeInput;

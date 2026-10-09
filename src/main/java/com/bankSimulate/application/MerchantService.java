@@ -3,6 +3,7 @@ package com.bankSimulate.application;
 import com.bankSimulate.domain.enums.*;
 import com.bankSimulate.domain.common.ApiException;
 import com.bankSimulate.domain.merchant.*;
+import com.bankSimulate.domain.terminal.Terminal;
 import com.bankSimulate.infrastructure.persistence.*;
 import com.bankSimulate.infrastructure.security.SecretCipher;
 import com.bankSimulate.infrastructure.web.dto.AdminDtos;
@@ -10,10 +11,11 @@ import com.bankSimulate.infrastructure.logging.GatewayLogContext;
 import org.slf4j.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import java.util.Comparator;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class MerchantService {
@@ -57,7 +59,7 @@ public class MerchantService {
     }
 
     @Transactional(readOnly = true)
-    public Merchant requireById(java.util.UUID id) {
+    public Merchant requireById(UUID id) {
         return merchants.findById(id).orElseThrow(() -> new ApiException(404, "MERCHANT_NOT_FOUND", "Merchant not found"));
     }
 
@@ -122,8 +124,15 @@ public class MerchantService {
                 ? new AdminDtos.SettlementAccountResponse(m.getSettlementBankBin(), ConfigParsers.maskAccount(m.getSettlementAccountNumber()),
                 m.getSettlementAccountName())
                 : null;
+        List<Terminal> all = terminals.findAllByMerchantId(m.getId());
+        String defaultTerminal = all.stream().filter(t -> t.getPurpose() == TerminalPurpose.DEFAULT)
+                .map(Terminal::getTerminalId).findFirst().orElse(null);
+        List<String> channelTerminals = all.stream().filter(t -> t.isChannel() && !t.isRetired())
+                .sorted(java.util.Comparator.comparing(Terminal::getChannelOpenedAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(com.bankSimulate.domain.terminal.Terminal::getTerminalId).toList();
         return new AdminDtos.MerchantResponse(m.getMerNo(), m.getName(), m.getStatus().name(), m.getWebhookUrl(),
-                m.getExternalReference(), settlement);
+                m.getExternalReference(), settlement, defaultTerminal, channelTerminals);
     }
 
 

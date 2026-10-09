@@ -6,7 +6,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Endpoint trình duyệt gọi sau khi khách chọn thẻ trong sheet Google Pay. */
 @RestController
 @RequestMapping("/checkout")
 public class GooglePayController {
