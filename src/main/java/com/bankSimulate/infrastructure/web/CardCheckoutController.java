@@ -1,6 +1,8 @@
 package com.bankSimulate.infrastructure.web;
 
 import com.bankSimulate.application.CardPaymentService;
+import com.bankSimulate.domain.acquirer.Acquirer;
+import com.bankSimulate.infrastructure.persistence.AcquirerRepository;
 import com.bankSimulate.domain.common.ApiException;
 import com.bankSimulate.domain.enums.GateWayTransactionStatus;
 import com.bankSimulate.domain.gateway.GatewayTransaction;
@@ -22,9 +24,22 @@ public class CardCheckoutController {
     private static final MediaType HTML_UTF8 = new MediaType(MediaType.TEXT_HTML, StandardCharsets.UTF_8);
 
     private final CardPaymentService service;
+    private final AcquirerRepository acquirers;
 
-    public CardCheckoutController(CardPaymentService service) {
+    public CardCheckoutController(CardPaymentService service, AcquirerRepository acquirers) {
         this.service = service;
+        this.acquirers = acquirers;
+    }
+
+    /**
+     * Quy tắc thẻ test khác nhau theo loại ngân hàng (xem ThreeDsMockBank / DirectMockBank), nên gợi ý cũng phải khác:
+     * ngân hàng có 3DS: …1000 hỏi OTP, …2000 duyệt thẳng; ngân hàng không 3DS: chỉ …1000 được duyệt.
+     */
+    private String testCardHint(String bankCode) {
+        boolean threeDs = acquirers.findByCode(bankCode).map(Acquirer::isThreeDsSupported).orElse(false);
+        return threeDs
+                ? "Thẻ đuôi <b>1000</b> luôn hỏi OTP (<b>123456</b>), thẻ đuôi <b>2000</b> được duyệt không cần xác thực, đuôi khác bị từ chối."
+                : "Ngân hàng này không có 3DS: chỉ thẻ đuôi <b>1000</b> được duyệt (không hỏi OTP), đuôi khác bị từ chối.";
     }
 
     @GetMapping(value = "/{gwTxnId}", produces = MediaType.TEXT_HTML_VALUE)
@@ -111,7 +126,7 @@ public class CardCheckoutController {
                     <button type="submit">Thanh toán</button>
                   </form>
                   <p class="hint">Thẻ thử: <b>4000 0000 0000 1000</b> · 12/2030 · CVV 123.
-                  Thẻ đuôi <b>2000</b> được duyệt không cần xác thực, đuôi khác bị từ chối.
+                  __CARD_HINT__
                   Số thẻ không được lưu — chỉ giữ 6 số đầu và 4 số cuối.</p>
                 </div></div></body></html>
                 """
@@ -119,6 +134,7 @@ public class CardCheckoutController {
                 .replace("__AMOUNT__", NumberFormat.getIntegerInstance(Locale.US).format(txn.getAmount()))
                 .replace("__CCY__", esc(txn.getCurrency()))
                 .replace("__BANK__", esc(txn.getBankCode()))
+                .replace("__CARD_HINT__", testCardHint(txn.getBankCode()))
                 .replace("__ID__", esc(txn.getGwTxnId()))
                 .replace("__ERROR__", error == null ? "" : "<p class=\"err\">" + esc(error) + "</p>");
     }
