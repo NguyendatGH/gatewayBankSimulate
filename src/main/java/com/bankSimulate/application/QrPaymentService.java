@@ -35,7 +35,9 @@ public class QrPaymentService {
     private static final String SANDBOX_PAYER_ACCOUNT = "0123456789012";
     private static final long DEFAULT_TTL_SECONDS = 900;
 
-    public enum Action { SUCCEED, FAIL, EXPIRE }
+    public enum Action {
+        SUCCEED, FAIL, EXPIRE
+    }
 
     private final GatewayRuntimeAuth auth;
     private final TerminalRoutes terminalRoutes;
@@ -45,13 +47,15 @@ public class QrPaymentService {
     private final MerchantWebhookSender webhooks;
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
+    private final QrCodeStore qrStore;
     private final String publicBaseUrl;
 
     public QrPaymentService(GatewayRuntimeAuth auth, TerminalRoutes terminalRoutes,
-                            AcquirerMerchantConfigRepository acquirerConfigs,
-                            GatewayTransactionRepository transactions, GatewayMoneyService money,
-                            MerchantWebhookSender webhooks, JdbcTemplate jdbc, TransactionTemplate tx,
-                            @Value("${gateway.public-base-url:http://localhost:8090}") String publicBaseUrl) {
+            AcquirerMerchantConfigRepository acquirerConfigs,
+            GatewayTransactionRepository transactions, GatewayMoneyService money,
+            MerchantWebhookSender webhooks, JdbcTemplate jdbc, TransactionTemplate tx,
+            QrCodeStore qrStore,
+            @Value("${gateway.public-base-url:http://localhost:8090}") String publicBaseUrl) {
         this.auth = auth;
         this.terminalRoutes = terminalRoutes;
         this.acquirerConfigs = acquirerConfigs;
@@ -60,11 +64,12 @@ public class QrPaymentService {
         this.webhooks = webhooks;
         this.jdbc = jdbc;
         this.tx = tx;
+        this.qrStore = qrStore;
         this.publicBaseUrl = publicBaseUrl.replaceAll("/$", "");
     }
 
     public GatewayRuntimeDtos.PaymentResponse create(GatewayRuntimeAuth.Access access,
-                                                     GatewayRuntimeDtos.CreatePaymentRequest request, PaymentMethod method) {
+            GatewayRuntimeDtos.CreatePaymentRequest request, PaymentMethod method) {
         String orderCode = Long.toString(request.orderCode());
 
         QrRow existing = byOrder(access, orderCode);
@@ -80,10 +85,12 @@ public class QrPaymentService {
         validateSettlement(request);
 
         String tradeNo = transactions.nextTradeNo();
-        Instant expiresAt = request.expiresAt() == null ? Instant.now().plusSeconds(DEFAULT_TTL_SECONDS) : request.expiresAt();
+        Instant expiresAt = request.expiresAt() == null ? Instant.now().plusSeconds(DEFAULT_TTL_SECONDS)
+                : request.expiresAt();
         try {
             tx.executeWithoutResult(s -> {
-                money.register(tradeNo, access.merchant().getId(), access.terminal().getId(), orderCode, request.amount(),
+                money.register(tradeNo, access.merchant().getId(), access.terminal().getId(), orderCode,
+                        request.amount(),
                         access.terminal().getCurrency(), method.name(), acquirer, false, request.returnUrl(),
                         request.cancelUrl(), expiresAt, access.merchant().getWebhookUrl(), request.settlementBankBin(),
                         request.settlementAccountNumber());
@@ -95,9 +102,10 @@ public class QrPaymentService {
         }
         QrRow created = row(tradeNo, false);
         tagLog(created);
-        
+
         log.info("Payment created: paymentMethod={} acquirer={} amount={} returnUrl={} cancelUrl={} webhookUrl={}",
-        method, acquirer, request.amount(), request.returnUrl(), request.cancelUrl(), access.merchant().getWebhookUrl());
+                method, acquirer, request.amount(), request.returnUrl(), request.cancelUrl(),
+                access.merchant().getWebhookUrl());
         return response(created);
     }
 
@@ -115,7 +123,8 @@ public class QrPaymentService {
         tx.executeWithoutResult(s -> {
             QrRow p = row(tradeNo, true);
             tagLog(p);
-            if (money.markFinal(tradeNo, "CANCELLED")) log.info("Payment cancelled by merchant");
+            if (money.markFinal(tradeNo, "CANCELLED"))
+                log.info("Payment cancelled by merchant");
         });
     }
 
@@ -125,8 +134,14 @@ public class QrPaymentService {
         tagLog(p);
         boolean pending = "PENDING".equals(p.status());
         log.info(pending ? "Checkout page opened" : "Checkout page reopened, payment already {}", p.status());
+
+        // Lấy mã đang còn hạn trước rồi mới sinh mới: user bấm F5 thì không được làm mã đang hiển thị chết oan.
+        QrCodeStore.Ticket qr = pending && "QR".equals(p.method()) ? currentOrIssue(p) : null;
         return new CheckoutView(p.tradeNo(), p.merchantName(), p.method(), p.orderCode(), p.amount(), p.status(), pending,
-                "PAID".equals(p.status()) ? p.returnUrl() : p.cancelUrl(), qrPayload(p));
+                "PAID".equals(p.status()) ? p.returnUrl() : p.cancelUrl(),
+                qr == null ? null : qrPayload(p, qr.qrId()),
+                qr == null ? null : qr.qrId(),
+                qr == null ? null : qr.expiresAt());
     }
 
     public PaymentState state(String tradeNo) {
@@ -136,16 +151,23 @@ public class QrPaymentService {
         return new PaymentState(p.method(), p.status(), p.returnUrl(), p.cancelUrl());
     }
 
+    // Overload cũ cho GooglePayService: không có qrId vì Google Pay không dùng mã QR.
     public String complete(String tradeNo, Action action) {
+        return complete(tradeNo, action, null);
+    }
+
+    public String complete(String tradeNo, Action action, String qrId) {
         Outcome outcome = tx.execute(s -> {
             QrRow p = row(tradeNo, true);
-            if (p == null) throw notFound();
+            if (p == null)
+                throw notFound();
             tagLog(p);
             if ("PAID".equals(p.status())) {
                 log.info("Payment already PAID; duplicate confirmation ignored, no new capture amount={}", p.amount());
                 return new Outcome(p.returnUrl(), null);
             }
-            if (!"PENDING".equals(p.status())) return new Outcome(p.cancelUrl(), null);
+            if (!"PENDING".equals(p.status()))
+                return new Outcome(p.cancelUrl(), null);
             if (action == Action.EXPIRE || p.isExpired(Instant.now())) {
                 money.markFinal(tradeNo, "EXPIRED");
                 return new Outcome(p.cancelUrl(), failed(p, "EXPIRED"));
@@ -155,11 +177,21 @@ public class QrPaymentService {
                 return new Outcome(p.cancelUrl(), failed(p, "CANCELLED"));
             }
 
-            String ref = "BS" + System.currentTimeMillis() + "_" + (p.acquirerCode() == null ? "SANDBOX" : p.acquirerCode());
+            if ("QR".equals(p.method()) && !qrStore.isCurrent(tradeNo, qrId)) {
+                log.info("Rejected stale QR qrId={}", qrId);
+                throw new ApiException(409, "QR_EXPIRED", "QR code expired, please use the new code");
+            }
+
+            String ref = "BS" + System.currentTimeMillis() + "_"
+                    + (p.acquirerCode() == null ? "SANDBOX" : p.acquirerCode());
+
             Instant paidAt = Instant.now();
-            if (money.capture(tradeNo, ref, paidAt)) return new Outcome(p.returnUrl(), paid(p, ref, paidAt));
+            if (money.capture(tradeNo, ref, paidAt))
+                return new Outcome(p.returnUrl(), paid(p, ref, paidAt));
             return new Outcome(p.cancelUrl(), failed(p, "DECLINED"));
         });
+        if (outcome.redirect() != null)
+            qrStore.revoke(tradeNo);
         deliver(outcome.webhook());
         log.info("Checkout result action={} -> {}", action, require(tradeNo).status());
         return outcome.redirect();
@@ -175,7 +207,8 @@ public class QrPaymentService {
         for (String tradeNo : due) {
 
             try (GatewayLogContext.Scope ignored = GatewayLogContext.withBank(GatewayLogContext.GATEWAY)) {
-                if (expireIfDue(tradeNo)) expired++;
+                if (expireIfDue(tradeNo))
+                    expired++;
             }
         }
         return expired;
@@ -184,9 +217,11 @@ public class QrPaymentService {
     private boolean expireIfDue(String tradeNo) {
         Webhook webhook = tx.execute(s -> {
             QrRow p = row(tradeNo, true);
-            if (p == null || !"PENDING".equals(p.status()) || !p.isExpired(Instant.now())) return null;
+            if (p == null || !"PENDING".equals(p.status()) || !p.isExpired(Instant.now()))
+                return null;
             tagLog(p);
-            if (!money.markFinal(tradeNo, "EXPIRED")) return null;
+            if (!money.markFinal(tradeNo, "EXPIRED"))
+                return null;
             log.info("Payment expired, customer did not confirm before {}", p.expiresAt());
             return failed(p, "EXPIRED");
         });
@@ -200,11 +235,14 @@ public class QrPaymentService {
             throw new ApiException(409, "ROUTING_NOT_CONFIGURED", "No route configured for " + method);
         for (Acquirer acquirer : candidates) {
             if (!acquirer.accepts(method)
-                    || !acquirer.meetsThreeDs(method, access.terminal().getThreeDsPolicy())) continue;
-            if (acquirerConfigs.existsByAcquirerIdAndMerchantIdAndStatus(acquirer.getId(), access.merchant().getId(), Status.ACTIVE))
+                    || !acquirer.meetsThreeDs(method, access.terminal().getThreeDsPolicy()))
+                continue;
+            if (acquirerConfigs.existsByAcquirerIdAndMerchantIdAndStatus(acquirer.getId(), access.merchant().getId(),
+                    Status.ACTIVE))
                 return acquirer.getCode();
         }
-        throw new ApiException(409, "ACQUIRER_NOT_CONFIGURED", "No active merchant acquirer configuration for " + method);
+        throw new ApiException(409, "ACQUIRER_NOT_CONFIGURED",
+                "No active merchant acquirer configuration for " + method);
     }
 
     private static void validateItems(GatewayRuntimeDtos.CreatePaymentRequest request) {
@@ -224,17 +262,27 @@ public class QrPaymentService {
         boolean hasAccount = request.settlementAccountNumber() != null && !request.settlementAccountNumber().isBlank();
         if (hasBin != hasAccount || (hasBin && (!request.settlementBankBin().matches("[0-9]{6}")
                 || !request.settlementAccountNumber().matches("[0-9]{6,30}"))))
-            throw new ApiException(400, "INVALID_SETTLEMENT_ACCOUNT", "Settlement bank BIN and account number must be valid together");
+            throw new ApiException(400, "INVALID_SETTLEMENT_ACCOUNT",
+                    "Settlement bank BIN and account number must be valid together");
     }
 
     private GatewayRuntimeDtos.PaymentResponse response(QrRow p) {
-        return new GatewayRuntimeDtos.PaymentResponse(p.tradeNo(), publicBaseUrl + "/checkout/" + p.tradeNo(), qrPayload(p),
+        // Chỉ payment QR đang PENDING mới có mã. Dùng lại mã đang còn hạn nếu có (vd: merchant gọi create lặp cùng orderCode).
+        QrCodeStore.Ticket qr = "QR".equals(p.method()) && "PENDING".equals(p.status()) ? currentOrIssue(p) : null;
+        return new GatewayRuntimeDtos.PaymentResponse(p.tradeNo(), publicBaseUrl + "/checkout/" + p.tradeNo(),
+                qr == null ? null : qrPayload(p, qr.qrId()),
                 false, false);
     }
 
-    private static String qrPayload(QrRow p) {
-        return "QR".equals(p.method()) ? "MOCKQR|v=1|merchant=" + p.merNo() + "|order=" + p.orderCode()
-                + "|amount=" + p.amount() + "|currency=VND" : null;
+    /** Lấy mã QR đang còn hạn, chưa có hoặc đã hết thì sinh mã mới. null nếu phiên thanh toán không còn thời gian. */
+    private QrCodeStore.Ticket currentOrIssue(QrRow p) {
+        QrCodeStore.Ticket qr = qrStore.current(p.tradeNo());
+        return qr != null ? qr : qrStore.issue(p.tradeNo(), p.expiresAt());
+    }
+
+    private static String qrPayload(QrRow p, String qrId) {
+        return "QR".equals(p.method()) ? "MOCKQR|v=2|merchant=" + p.merNo() + "|order=" + p.orderCode()
+                + "|amount=" + p.amount() + "|currency=VND|ref=" + qrId : null;
     }
 
     private Webhook paid(QrRow p, String transactionRef, Instant paidAt) {
@@ -268,13 +316,15 @@ public class QrPaymentService {
     }
 
     private void deliver(Webhook webhook) {
-        if (webhook == null) return;
+        if (webhook == null)
+            return;
         webhooks.sendQr(webhook.url(), auth.activeSecret(webhook.merchantId()), webhook.body());
     }
 
     private QrRow require(String tradeNo) {
         QrRow p = row(tradeNo, false);
-        if (p == null) throw notFound();
+        if (p == null)
+            throw notFound();
         return p;
     }
 
@@ -314,9 +364,11 @@ public class QrPaymentService {
     private static QrRow map(ResultSet rs) throws SQLException {
         Timestamp paidAt = rs.getTimestamp("paid_at");
         return new QrRow(rs.getString("provider_payment_id"), rs.getObject("merchant_id", UUID.class),
-                rs.getString("mer_no"), rs.getString("ter_no"), rs.getString("merchant_name"), rs.getString("order_code"),
+                rs.getString("mer_no"), rs.getString("ter_no"), rs.getString("merchant_name"),
+                rs.getString("order_code"),
                 rs.getLong("amount"), rs.getString("payment_method"), rs.getString("status"), rs.getLong("amount_paid"),
-                rs.getString("transaction_ref"), paidAt == null ? null : paidAt.toInstant(), rs.getString("three_ds_result"),
+                rs.getString("transaction_ref"), paidAt == null ? null : paidAt.toInstant(),
+                rs.getString("three_ds_result"),
                 rs.getString("return_url"), rs.getString("cancel_url"), rs.getTimestamp("expires_at").toInstant(),
                 rs.getString("merchant_webhook_url"), rs.getString("acquirer_code"));
     }
@@ -329,20 +381,47 @@ public class QrPaymentService {
     }
 
     private record QrRow(String tradeNo, UUID merchantId, String merNo, String terNo, String merchantName,
-                         String orderCode, long amount, String method, String status, long amountPaid,
-                         String transactionRef, Instant paidAt, String threeDsResult, String returnUrl, String cancelUrl,
-                         Instant expiresAt, String webhookUrl, String acquirerCode) {
+            String orderCode, long amount, String method, String status, long amountPaid,
+            String transactionRef, Instant paidAt, String threeDsResult, String returnUrl, String cancelUrl,
+            Instant expiresAt, String webhookUrl, String acquirerCode) {
         boolean isExpired(Instant now) {
             return !now.isBefore(expiresAt);
         }
     }
 
-    private record Outcome(String redirect, Webhook webhook) {}
+    public record QrRefresh(String status, String qrPayload, String qrId, Instant expiresAt, String backUrl) {}
 
-    private record Webhook(String url, UUID merchantId, Map<String, Object> body) {}
+    public QrRefresh refreshQr(String tradeNo) {
+        expireIfDue(tradeNo);
+        QrRow p = require(tradeNo);
+        tagLog(p);
+        if (!"QR".equals(p.method())) throw new ApiException(400, "NOT_QR_PAYMENT", "Payment is not QR");
+        if (!"PENDING".equals(p.status())) {
+            return new QrRefresh(p.status(), null, null, null,
+                    "PAID".equals(p.status()) ? p.returnUrl() : p.cancelUrl());
+        }
+        QrCodeStore.Ticket qr = currentOrIssue(p);
+        if (qr == null) {
+            // issue() trả null khi phiên vừa hết hạn đúng lúc này (sau expireIfDue ở trên): chốt trạng thái rồi trả về.
+            expireIfDue(tradeNo);
+            QrRow latest = require(tradeNo);
+            return new QrRefresh(latest.status(), null, null, null,
+                    "PAID".equals(latest.status()) ? latest.returnUrl() : latest.cancelUrl());
+        }
+        return new QrRefresh(p.status(), qrPayload(p, qr.qrId()), qr.qrId(), qr.expiresAt(), null);
+    }
+
+
+    private record Outcome(String redirect, Webhook webhook) {
+    }
+
+    private record Webhook(String url, UUID merchantId, Map<String, Object> body) {
+    }
 
     public record CheckoutView(String tradeNo, String merchantName, String method, String orderCode, long amount,
-                               String status, boolean pending, String backUrl, String qrPayload) {}
+            String status, boolean pending, String backUrl, String qrPayload, String qrId, Instant qrExpiresAt) {
+    }
 
-    public record PaymentState(String method, String status, String returnUrl, String cancelUrl) {}
+    public record PaymentState(String method, String status, String returnUrl, String cancelUrl) {
+    }
 }

@@ -18,8 +18,14 @@ public final class QrCheckoutPage {
 
     public static String renderWith(QrPaymentService.CheckoutView v, Slots custom) {
         String safeId = HtmlUtils.htmlEscape(v.tradeNo(), "UTF-8");
-        String qrPanel = v.qrPayload() == null ? "" : "<section class=\"qr-panel\"><p class=\"eyebrow\">Mã QR mô phỏng</p>"
-                + QrSvg.render(v.qrPayload()) + "<pre>" + HtmlUtils.htmlEscape(v.qrPayload(), "UTF-8") + "</pre></section>";
+        String qrPanel =  v.qrPayload() == null ? "" :
+                "<section class=\"qr-panel\" id=\"qr-panel\" data-trade=\"" + safeId + "\" data-expires=\""
+                + v.qrExpiresAt().toEpochMilli() + "\">"
+                + "<p class=\"eyebrow\">Mã QR mô phỏng · hết hạn sau <b id=\"qr-left\">--</b></p>"
+                + "<div id=\"qr-img\">" + QrSvg.render(v.qrPayload()) + "</div>"
+                + "<pre id=\"qr-text\">" + HtmlUtils.htmlEscape(v.qrPayload(), "UTF-8") + "</pre></section>"
+                + QR_COUNTDOWN_SCRIPT;
+
         boolean hasCustom = v.pending() && custom != null;
         String statusPanel;
         String paymentAction;
@@ -36,8 +42,10 @@ public final class QrCheckoutPage {
             String title = "QR".equals(v.method()) ? "Quét mã bằng ứng dụng ngân hàng" : "Xác nhận trên ví / ứng dụng ngân hàng";
             statusPanel = "<div class=\"flow-card\"><span class=\"flow-icon\" aria-hidden=\"true\">↗</span><div><strong>"
                     + title + "</strong><p>Bấm \"Xác nhận thanh toán\" để mô phỏng ngân hàng của bạn duyệt giao dịch.</p></div></div>";
-            paymentAction = "<form method=\"post\" action=\"/checkout/" + safeId + "/succeed\"><button class=\"button primary\" "
-                    + "type=\"submit\">Xác nhận thanh toán<span aria-hidden=\"true\">→</span></button></form>";
+            paymentAction = "<form method=\"post\" action=\"/checkout/" + safeId + "/succeed\">"
+                    + (v.qrId() == null ? "" : "<input type=\"hidden\" name=\"qr\" id=\"qr-id\" value=\""
+                        + HtmlUtils.htmlEscape(v.qrId(), "UTF-8") + "\">")
+                    + "<button class=\"button primary\" type=\"submit\">Xác nhận thanh toán<span aria-hidden=\"true\">→</span></button></form>";
             if (hasCustom) {
                 statusPanel = custom.status();
                 paymentAction = custom.action();
@@ -74,6 +82,42 @@ public final class QrCheckoutPage {
             default -> method;
         };
     }
+
+    // Đếm ngược tới lúc QR hết hạn. Hết giờ thì xin mã mới rồi reload: server luôn là bên quyết định
+    // hiển thị gì (QR mới / "Giao dịch đã hết hạn" / trang 410 nếu link đã đóng), JS chỉ báo "đến giờ rồi".
+    private static final String QR_COUNTDOWN_SCRIPT = """
+            <script>
+            (() => {
+              const panel = document.getElementById('qr-panel');
+              if (!panel) return;
+              const trade = panel.dataset.trade;
+              const expires = Number(panel.dataset.expires);
+              const left = document.getElementById('qr-left');
+              let busy = false;
+
+              const tick = async () => {
+                const ms = expires - Date.now();
+                if (ms > 0) {
+                  const s = Math.ceil(ms / 1000);
+                  left.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+                  return;
+                }
+                if (busy) return;
+                busy = true;
+                left.textContent = 'đang tạo mã mới…';
+                try {
+                  await fetch('/checkout/' + trade + '/qr', { method: 'POST' });
+                } catch (e) {
+                  busy = false; // mất mạng: để lần tick sau thử lại
+                  return;
+                }
+                location.reload();
+              };
+              tick();
+              setInterval(tick, 1000);
+            })();
+            </script>
+            """;
 
     private static final String TEMPLATE = """
                 <!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
