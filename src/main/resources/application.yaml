@@ -3,6 +3,10 @@ spring:
     import: "optional:file:.env[.properties]"
   application:
     name: bankSimulate
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/payment_lab}
     username: ${DB_USERNAME:payment_lab}
@@ -33,8 +37,11 @@ gateway:
   card:
     auth-ttl: ${GATEWAY_CARD_AUTH_TTL:PT15M}
     expiry-interval: ${GATEWAY_CARD_EXPIRY_INTERVAL:PT60S}
+  checkout:
+    closed-ttl: ${GATEWAY_CHECKOUT_CLOSED_TTL:PT24H}
   qr:
     expiry-interval: ${GATEWAY_QR_EXPIRY_INTERVAL:PT60S}
+    code-ttl: ${GATEWAY_QR_CODE_TTL:PT2M}
   google-pay:
     enabled: ${GATEWAY_GOOGLE_PAY_ENABLED:true}
     environment: ${GATEWAY_GOOGLE_PAY_ENVIRONMENT:TEST}
@@ -56,6 +63,7 @@ server:
     include-message: never
 logging:
   level:
+    org.springframework.data.redis.repository.configuration.RepositoryConfigurationExtensionSupport: WARN
     org.springframework.web: INFO
     org.springframework.web.servlet.mvc.method.annotation: INFO
     org.hibernate.SQL: INFO

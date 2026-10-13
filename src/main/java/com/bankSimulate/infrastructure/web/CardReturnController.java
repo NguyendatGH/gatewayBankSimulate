@@ -1,6 +1,7 @@
 package com.bankSimulate.infrastructure.web;
 
 import com.bankSimulate.domain.gateway.GatewayTransaction;
+import com.bankSimulate.application.GuardCheckout;
 import com.bankSimulate.domain.common.ApiException;
 import com.bankSimulate.infrastructure.persistence.GatewayTransactionRepository;
 
@@ -18,13 +19,14 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class CardReturnController {
 
     private final GatewayTransactionRepository transactions;
-
+    private final GuardCheckout guard;
     private static final Logger log = LoggerFactory.getLogger(CardReturnController.class);
 
 
 
-    public CardReturnController(GatewayTransactionRepository transactions) {
+    public CardReturnController(GatewayTransactionRepository transactions, GuardCheckout guard) {
         this.transactions = transactions;
+        this.guard = guard;
     }
 
     @GetMapping("/gateway-return/{gwTxnId}")
@@ -37,7 +39,8 @@ public class CardReturnController {
                 .queryParam("resultCode", txn.getResultCode() == null ? "" : txn.getResultCode())
                 .build().toUriString();
 
-                log.info("Return redirect gwTxnId={} resultCode={} -> {}", gwTxnId, txn.getResultCode(), target);
+        log.info("Return redirect gwTxnId={} resultCode={} -> {}", gwTxnId, txn.getResultCode(), target);
+        guard.close(gwTxnId);
 
         return ResponseEntity.status(HttpStatus.SEE_OTHER).header(HttpHeaders.LOCATION, target).build();
     }
