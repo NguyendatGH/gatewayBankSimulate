@@ -1,6 +1,12 @@
 spring:
+  config:
+    import: "optional:file:.env[.properties]"
   application:
     name: bankSimulate
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/payment_lab}
     username: ${DB_USERNAME:payment_lab}
@@ -16,6 +22,39 @@ gateway:
   master-key: ${GATEWAY_MASTER_KEY:}
   public-base-url: ${GATEWAY_PUBLIC_BASE_URL:http://localhost:8090}
   payout-balance: ${GATEWAY_PAYOUT_BALANCE:100000000}
+  bank-callback-secret: ${GATEWAY_BANK_CALLBACK_SECRET:sandbox-bank-callback-secret}
+  mock-bank:
+    base-url: ${GATEWAY_MOCK_BANK_URL:http://localhost:8090}
+    # Khóa = mã acquirer đúng như trong DB. Trỏ một ngân hàng sang cổng không ai nghe để mô phỏng nó sập (thử failover).
+    VCB:
+      base-url: ${GATEWAY_MOCK_BANK_VCB_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
+    TCB:
+      base-url: ${GATEWAY_MOCK_BANK_TCB_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
+    VTB:
+      base-url: ${GATEWAY_MOCK_BANK_VTB_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
+    connect-timeout: ${GATEWAY_MOCK_BANK_CONNECT_TIMEOUT:PT3S}
+    read-timeout: ${GATEWAY_MOCK_BANK_READ_TIMEOUT:PT20S}
+  card:
+    auth-ttl: ${GATEWAY_CARD_AUTH_TTL:PT15M}
+    expiry-interval: ${GATEWAY_CARD_EXPIRY_INTERVAL:PT60S}
+  checkout:
+    closed-ttl: ${GATEWAY_CHECKOUT_CLOSED_TTL:PT24H}
+  qr:
+    expiry-interval: ${GATEWAY_QR_EXPIRY_INTERVAL:PT60S}
+    code-ttl: ${GATEWAY_QR_CODE_TTL:PT2M}
+  google-pay:
+    enabled: ${GATEWAY_GOOGLE_PAY_ENABLED:true}
+    environment: ${GATEWAY_GOOGLE_PAY_ENVIRONMENT:TEST}
+    sandbox-scenarios-enabled: ${GATEWAY_GOOGLE_PAY_SCENARIOS:true}
+    default-scenario: ${GATEWAY_GOOGLE_PAY_DEFAULT_SCENARIO:APPROVED}
+  defaults:
+    acquirers: ${GATEWAY_DEFAULT_ACQUIRERS:MBB,VCB,VTB,TCB}
+    terminal:
+      channel: ${GATEWAY_DEFAULT_CHANNEL:WEB}
+      currency: ${GATEWAY_DEFAULT_CURRENCY:VND}
+      payment-methods: ${GATEWAY_DEFAULT_METHODS:CARD,QR}
+      three-ds-policy: ${GATEWAY_DEFAULT_3DS:OPTIONAL}
+      routing-profile: ${GATEWAY_DEFAULT_PROFILE:STANDARD}
   seed:
     enabled: ${GATEWAY_SEED_ENABLED:false}
 server:
@@ -24,6 +63,7 @@ server:
     include-message: never
 logging:
   level:
+    org.springframework.data.redis.repository.configuration.RepositoryConfigurationExtensionSupport: WARN
     org.springframework.web: INFO
     org.springframework.web.servlet.mvc.method.annotation: INFO
     org.hibernate.SQL: INFO
