@@ -25,7 +25,6 @@ gateway:
   bank-callback-secret: ${GATEWAY_BANK_CALLBACK_SECRET:sandbox-bank-callback-secret}
   mock-bank:
     base-url: ${GATEWAY_MOCK_BANK_URL:http://localhost:8090}
-    # Khóa = mã acquirer đúng như trong DB. Trỏ một ngân hàng sang cổng không ai nghe để mô phỏng nó sập (thử failover).
     VCB:
       base-url: ${GATEWAY_MOCK_BANK_VCB_URL:${GATEWAY_MOCK_BANK_URL:http://localhost:8090}}
     TCB:
@@ -55,6 +54,17 @@ gateway:
       payment-methods: ${GATEWAY_DEFAULT_METHODS:CARD,QR}
       three-ds-policy: ${GATEWAY_DEFAULT_3DS:OPTIONAL}
       routing-profile: ${GATEWAY_DEFAULT_PROFILE:STANDARD}
+  bank-callback-secrets:
+    MBB: ${GATEWAY_BANK_CALLBACK_SECRET_MBB:super-secret-mb-hihi}
+    VCB: ${GATEWAY_BANK_CALLBACK_SECRET_VCB:super-secret-vcb-hihi}
+    VTB: ${GATEWAY_BANK_CALLBACK_SECRET_VTB:super-secret-vtb-hihi}
+    TCB: ${GATEWAY_BANK_CALLBACK_SECRET_TCB:super-secret-tcb-hihi}
+  # Key ký lệnh Gateway -> Bank (authorize). Khác key callback ở trên: mỗi chiều một key.
+  bank-request-secrets:
+    MBB: ${GATEWAY_BANK_REQUEST_SECRET_MBB:sandbox-request-mbb}
+    VCB: ${GATEWAY_BANK_REQUEST_SECRET_VCB:sandbox-request-vcb}
+    VTB: ${GATEWAY_BANK_REQUEST_SECRET_VTB:sandbox-request-vtb}
+    TCB: ${GATEWAY_BANK_REQUEST_SECRET_TCB:sandbox-request-tcb}
   seed:
     enabled: ${GATEWAY_SEED_ENABLED:false}
 server:

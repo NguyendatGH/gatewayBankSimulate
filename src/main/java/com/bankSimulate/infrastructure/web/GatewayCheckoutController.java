@@ -35,6 +35,17 @@ public class GatewayCheckoutController {
         return ResponseEntity.ok().contentType(HTML_UTF8).body(html);
     }
 
+    /**
+     * Trang checkout poll endpoint này. Hết PENDING (đã trả ở tab khác, bị từ chối, hết hạn) thì trả redirectUrl
+     */
+    @GetMapping("/{tradeNo}/status")
+    public CheckoutStatusPoll.Status status(@PathVariable String tradeNo) {
+        QrPaymentService.PaymentState state = service.state(tradeNo);
+        String redirect = "PENDING".equals(state.status()) ? null
+                : "PAID".equals(state.status()) ? state.returnUrl() : state.cancelUrl();
+        return new CheckoutStatusPoll.Status(state.status(), redirect);
+    }
+
     @PostMapping("/{tradeNo}/qr")
     public QrPaymentService.QrRefresh refreshQr(@PathVariable String tradeNo) {
         return service.refreshQr(tradeNo);

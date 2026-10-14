@@ -44,11 +44,17 @@ public class RequestIdFilter extends OncePerRequestFilter {
             MDC.put(MDC_KEY, requestId);
             Matcher tradeNo = TRADE_NO_IN_PATH.matcher(request.getRequestURI());
             if (tradeNo.find()) GatewayLogContext.setTradeNo(tradeNo.group(1));
-            log.info("<- {} {}", request.getMethod(), request.getRequestURI());
+            // Trang checkout poll /status mỗi 3 giây: chỉ log khi khác 200 (vd 410 link đã đóng) để log không bị ngập
+            boolean statusPoll = "GET".equals(request.getMethod()) && request.getRequestURI().endsWith("/status");
+            if (!statusPoll) log.info("<- {} {}", request.getMethod(), request.getRequestURI());
             try {
                 chain.doFilter(request, response);
             } finally {
-                log.info("-> {} in {}ms", response.getStatus(), (System.nanoTime() - startedAt) / 1_000_000);
+                if (!statusPoll)
+                    log.info("-> {} in {}ms", response.getStatus(), (System.nanoTime() - startedAt) / 1_000_000);
+                else if (response.getStatus() != 200)
+                    log.info("<- {} {} -> {} in {}ms", request.getMethod(), request.getRequestURI(),
+                            response.getStatus(), (System.nanoTime() - startedAt) / 1_000_000);
             }
         }
     }
