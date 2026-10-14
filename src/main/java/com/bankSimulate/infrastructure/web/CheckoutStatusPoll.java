@@ -12,11 +12,6 @@ final class CheckoutStatusPoll {
     private CheckoutStatusPoll() {
     }
 
-    /**
-     * @param statusUrl     endpoint trả {"status": "...", "redirectUrl": "..." | null}; không bị
-     *                      CheckoutClosedInterceptor chặn nên link đã đóng vẫn hỏi được kết quả
-     * @param currentStatus trạng thái server dùng để vẽ trang hiện tại
-     */
     static String script(String statusUrl, String currentStatus) {
         return SCRIPT
                 .replace("__URL__", HtmlUtils.htmlEscape(statusUrl, "UTF-8"))

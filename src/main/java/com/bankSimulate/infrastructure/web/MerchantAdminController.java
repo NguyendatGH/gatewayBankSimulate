@@ -19,14 +19,35 @@ public class MerchantAdminController {
     }
 
     @GetMapping
-    public java.util.List<AdminDtos.MerchantListItem> list() { return service.list(); }
-    @PostMapping public AdminDtos.MerchantCreatedResponse create(@Valid @RequestBody AdminDtos.CreateMerchantRequest request) { return service.create(request); }
-    @GetMapping("/{merNo}") public AdminDtos.MerchantResponse get(@PathVariable String merNo) { return service.get(merNo); }
-    @PatchMapping("/{merNo}") public AdminDtos.MerchantResponse update(@PathVariable String merNo, @RequestBody AdminDtos.UpdateMerchantRequest request) { return service.update(merNo, request); }
+    public java.util.List<AdminDtos.MerchantListItem> list() {
+        return service.list();
+    }
+
+    @PostMapping
+    public AdminDtos.MerchantCreatedResponse create(@Valid @RequestBody AdminDtos.CreateMerchantRequest request) {
+        return service.create(request);
+    }
+
+    @GetMapping("/{merNo}")
+    public AdminDtos.MerchantResponse get(@PathVariable String merNo) {
+        return service.get(merNo);
+    }
+
+    @PatchMapping("/{merNo}")
+    public AdminDtos.MerchantResponse update(@PathVariable String merNo,
+            @RequestBody AdminDtos.UpdateMerchantRequest request) {
+        return service.update(merNo, request);
+    }
+
     @PutMapping("/{merNo}/settlement-account")
-    public AdminDtos.MerchantResponse settlement(@PathVariable String merNo, @Valid @RequestBody AdminDtos.SettlementAccountRequest request) {
+    public AdminDtos.MerchantResponse settlement(@PathVariable String merNo,
+            @Valid @RequestBody AdminDtos.SettlementAccountRequest request) {
         return service.updateSettlement(merNo, request);
     }
-    @PostMapping("/{merNo}/credentials/rotate") @ResponseStatus(HttpStatus.CREATED)
-    public AdminDtos.CredentialResponse rotate(@PathVariable String merNo) { return service.rotate(merNo); }
+
+    @PostMapping("/{merNo}/credentials/rotate")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AdminDtos.CredentialResponse rotate(@PathVariable String merNo) {
+        return service.rotate(merNo);
+    }
 }
