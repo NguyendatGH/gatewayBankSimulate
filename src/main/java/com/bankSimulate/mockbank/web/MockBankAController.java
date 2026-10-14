@@ -1,13 +1,13 @@
 package com.bankSimulate.mockbank.web;
 import com.bankSimulate.domain.common.ApiException;
 import com.bankSimulate.infrastructure.logging.GatewayLogContext;
+import com.bankSimulate.infrastructure.security.BankRequestSigner;
 import com.bankSimulate.infrastructure.security.CallbackSigner;
 import com.bankSimulate.mockbank.MockBankAuthorizeInput;
 import com.bankSimulate.mockbank.web.dto.MockBankADtos;
 import com.bankSimulate.mockbank.MockBankDecision;
 import com.bankSimulate.mockbank.MockBankSessionStore;
 import com.bankSimulate.mockbank.ThreeDsMockBank;
-import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -20,6 +20,7 @@ import org.springframework.web.util.HtmlUtils;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 
 @RestController
 @RequestMapping("/mock-bank/{bank}")
@@ -32,27 +33,34 @@ public class MockBankAController {
     private final ThreeDsMockBank issuer;
     private final MockBankSessionStore sessions;
     private final CallbackSigner signer;
+    private final BankRequestSigner requestSigner;
+    private final MockBankRequestReader reader;
     private final ObjectMapper json;
     private final RestClient http = RestClient.create();
     private final String publicBaseUrl;
 
     public MockBankAController(ThreeDsMockBank issuer, MockBankSessionStore sessions, CallbackSigner signer,
+                               BankRequestSigner requestSigner, MockBankRequestReader reader,
                                ObjectMapper json,
                                @org.springframework.beans.factory.annotation.Value("${gateway.public-base-url:http://localhost:8090}") String publicBaseUrl) {
         this.issuer = issuer;
         this.sessions = sessions;
         this.signer = signer;
+        this.requestSigner = requestSigner;
+        this.reader = reader;
         this.json = json;
         this.publicBaseUrl = publicBaseUrl.replaceAll("/$", "");
     }
 
     @PostMapping("/v1/authorize")
-    public MockBankADtos.AuthorizeResponse authorize(@PathVariable String bank,
-                                                     @Valid @RequestBody MockBankADtos.AuthorizeRequest request) {
+    public MockBankADtos.AuthorizeResponse authorize(@PathVariable String bank, @RequestBody String rawBody,
+            @RequestHeader(value = BankRequestSigner.TIMESTAMP_HEADER, required = false) String timestamp,
+            @RequestHeader(value = BankRequestSigner.SIGNATURE_HEADER, required = false) String signature) {
         tagLog(bank);
-        GatewayLogContext.setMerchantNo(request.merchantId());
-        GatewayLogContext.setTradeNo(request.txnRef());
-        MockBankAuthorizeInput input = new MockBankAuthorizeInput(request.txnRef(), parseAmount(request.txnAmount()),
+        reader.tagLogFromUntrusted(rawBody, "merchantId", "txnRef");
+        requestSigner.requireValid(bank, timestamp, rawBody, signature);
+        MockBankADtos.AuthorizeRequest request = reader.read(rawBody, MockBankADtos.AuthorizeRequest.class);
+        MockBankAuthorizeInput input = new MockBankAuthorizeInput(request.merchantId(), request.txnRef(), parseAmount(request.txnAmount()),
                 "704".equals(request.ccy()) ? "VND" : request.ccy(), request.card().number(),
                 expiryMonth(request.card().expiry()), expiryYear(request.card().expiry()), request.card().cvv(),
                 preference(request.authPreference()), request.notifyUrl(), request.termUrl());
@@ -88,7 +96,7 @@ public class MockBankAController {
                     .body(otpPage(bank, bankRef, session, retryable.getMessage()));
         }
 
-        notifyGateway(session, decision);
+        notifyGateway(bank, session, decision);
         sessions.remove(bankRef);
         return ResponseEntity.status(HttpStatus.SEE_OTHER)
                 .header(HttpHeaders.LOCATION, session.termUrl()).build();
@@ -99,23 +107,27 @@ public class MockBankAController {
         tagLog(bank);
         MockBankSessionStore.Session session = session(bankRef);
         session.close();
-        notifyGateway(session, MockBankDecision.decline(bankRef, "Cardholder cancelled at bank page"));
+        notifyGateway(bank, session, MockBankDecision.decline(bankRef, "Cardholder cancelled at bank page"));
         sessions.remove(bankRef);
         return ResponseEntity.status(HttpStatus.SEE_OTHER).header(HttpHeaders.LOCATION, session.termUrl()).build();
     }
 
-    private void notifyGateway(MockBankSessionStore.Session session, MockBankDecision decision) {
+    private void notifyGateway(String bank, MockBankSessionStore.Session session, MockBankDecision decision) {
         MockBankADtos.Notification body = new MockBankADtos.Notification(decision.bankRef(),
                 decision.kind() == MockBankDecision.Kind.APPROVE ? MockBankADtos.RESP_APPROVED : MockBankADtos.RESP_DECLINED,
                 decision.message(), decision.authCode());
         String raw = json.writeValueAsString(body);
+        String timemstamp = Long.toString(Instant.now().getEpochSecond());
+        String signature = signer.sign(bank, timemstamp, raw);
+        log.info("Signed callback with {} key: HMAC-SHA256(bank + timestamp {} + body {} bytes) sig={}...",
+                bank, timemstamp, raw.length(), signature.substring(0, 8));
         try {
             http.post().uri(session.notifyUrl()).contentType(MediaType.APPLICATION_JSON)
-                    .header("X-Bank-Signature", signer.sign(raw))
+                    .header("X-Bank-Timestamp", timemstamp)
+                    .header("X-Bank-Signature", signature)
                     .body(raw).retrieve().toBodilessEntity();
             log.info("Notified gateway ref={} respCode={}", decision.bankRef(), body.respCode());
         } catch (RuntimeException ex) {
-
             log.warn("Could not notify gateway ref={}: {}", decision.bankRef(), ex.toString());
         }
     }
@@ -127,6 +139,7 @@ public class MockBankAController {
     private MockBankSessionStore.Session session(String bankRef) {
         MockBankSessionStore.Session session = sessions.find(bankRef)
                 .orElseThrow(() -> new ApiException(404, "AUTH_SESSION_NOT_FOUND", "Authentication session not found"));
+        GatewayLogContext.setMerchantNo(session.merchantNo());
         GatewayLogContext.setTradeNo(session.reference());
         return session;
     }
@@ -185,7 +198,7 @@ public class MockBankAController {
                   <h1>Xác thực chủ thẻ</h1>
                   <div class="row"><span>Thẻ</span><b>•••• __LAST4__</b></div>
                   <div class="row"><span>Số tiền</span><b>__AMOUNT__ __CCY__</b></div>
-                  <div class="row"><span>Mã giao dịch</span><b>__REF__</b></div>
+                  <div class="row"><span>Mã giao dịch</span><b>__TXN__</b></div>
                   <form method="post" action="/mock-bank/__BANK_PATH__/auth/__REF__">
                     <label for="otp">Mã OTP ngân hàng gửi cho bạn</label>
                     <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code"
@@ -203,6 +216,7 @@ public class MockBankAController {
                 .replace("__LAST4__", esc(session.panLast4()))
                 .replace("__AMOUNT__", java.text.NumberFormat.getIntegerInstance(java.util.Locale.US).format(session.amount()))
                 .replace("__CCY__", esc(session.currency()))
+                .replace("__TXN__", esc(session.reference()))
                 .replace("__REF__", safeRef)
                 .replace("__BANK_PATH__", esc(bank))
                 .replace("__BANK__", esc(bank.toUpperCase(java.util.Locale.ROOT)))

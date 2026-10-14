@@ -45,7 +45,7 @@ public class ThreeDsMockBank implements MockBank {
             log.info("merchant asked to skip authentication but issuer risk rules override it"
                     + " ref={} last4={}", bankRef, last4);
         }
-        sessions.put(new MockBankSessionStore.Session(bankRef, input.reference(), input.amount(), input.currency(),
+        sessions.put(new MockBankSessionStore.Session(bankRef, input.merchantNo(), input.reference(), input.amount(), input.currency(),
                 last4, input.notifyUrl(), input.termUrl()));
         log.info("cardholder authentication required ref={} last4={} preference={}",
                 bankRef, last4, preference);

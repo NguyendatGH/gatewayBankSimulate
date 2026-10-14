@@ -17,6 +17,8 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         // Không đưa /gateway-return/** vào đây: đó là bước đánh dấu "đã redirect", chặn nó thì user không về được merchant.
-        registry.addInterceptor(checkoutClosed).addPathPatterns("/checkout/**", "/card-checkout/**");
+        // Không chặn /status: tab còn mở cần hỏi được kết quả cuối để tự về trang merchant, thay vì kẹt ở trang 410.
+        registry.addInterceptor(checkoutClosed).addPathPatterns("/checkout/**", "/card-checkout/**")
+                .excludePathPatterns("/checkout/*/status", "/card-checkout/*/status");
     }
 }

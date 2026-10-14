@@ -1,6 +1,8 @@
 package com.bankSimulate.application;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,23 +23,30 @@ public class GuardCheckout {
         this.ttl = ttl;
     }
 
-    /** Gọi ngay trước khi redirect user về returnUrl/cancelUrl. */
     public void close(String paymentId) {
         try {
-            Boolean first = redis.opsForValue().setIfAbsent(PREFIX + paymentId, "1", ttl);
-            log.info("Checkout closed id={} firstTime={}", paymentId, first);
+            Boolean first = redis.opsForValue().setIfAbsent(PREFIX + paymentId, Instant.now().toString(), ttl);
+            if (Boolean.TRUE.equals(first))
+                log.info("Checkout link closed id={} (blocked for {})", paymentId, ttl);
+            else
+                log.info("Checkout link already closed id={}, keep the first close time", paymentId);
         } catch (Exception err) {
             log.warn("Redis unavailable, cannot close checkout id={}: {}", paymentId, err.getMessage());
         }
     }
 
-    /** true = đã redirect rồi, chặn truy cập. */
     public boolean isClosed(String paymentId) {
+        return closedAt(paymentId).isPresent();
+    }
+
+    public Optional<String> closedAt(String paymentId) {
         try {
-            return Boolean.TRUE.equals(redis.hasKey(PREFIX + paymentId));
+            String value = redis.opsForValue().get(PREFIX + paymentId);
+            if (value == null) return Optional.empty();
+            return Optional.of("1".equals(value) ? "unknown" : value);
         } catch (Exception err) {
             log.warn("Redis unavailable, checkout guard skipped id={}: {}", paymentId, err.getMessage());
-            return false;
+            return Optional.empty();
         }
     }
 }

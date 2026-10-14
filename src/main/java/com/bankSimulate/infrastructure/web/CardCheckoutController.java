@@ -44,6 +44,16 @@ public class CardCheckoutController {
         return render(service.require(gwTxnId), null);
     }
 
+    /**
+     * Trang checkout poll endpoint này.
+     */
+    @GetMapping(value = "/{gwTxnId}/status", produces = MediaType.APPLICATION_JSON_VALUE)
+    public CheckoutStatusPoll.Status status(@PathVariable String gwTxnId) {
+        GatewayTransaction txn = service.require(gwTxnId);
+        return new CheckoutStatusPoll.Status(txn.getStatus().name(),
+                txn.isFinal() ? "/gateway-return/" + txn.getGwTxnId() : null);
+    }
+
     @PostMapping(value = "/{gwTxnId}", produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity<String> submit(@PathVariable String gwTxnId,
                                          @RequestParam String pan,
@@ -67,19 +77,17 @@ public class CardCheckoutController {
     }
 
     private String render(GatewayTransaction txn, String error) {
+        if (txn.getStatus() == GateWayTransactionStatus.PENDING_AUTH) {
+            // Thẻ đã gửi đi, chủ thẻ đang xác thực 3DS ở tab/thiết bị khác: chưa có kết quả nên không ghi "đã xử lý"
+            return infoPage("Giao dịch đang được xử lý ở phiên khác",
+                    "Giao dịch này đang chờ xác thực ở một tab hoặc thiết bị khác. "
+                            + "Vui lòng hoàn tất ở đó, không cần nhập lại thẻ ở trang này.",
+                    poll(txn));
+        }
         if (txn.getStatus() != GateWayTransactionStatus.CREATED) {
-            return """
-                    <!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Giao dịch đã xử lý</title>
-                    <style>body{font-family:ui-sans-serif,system-ui,sans-serif;display:grid;place-items:center;
-                    min-height:100vh;margin:0;background:#f4f6fa;color:#1d2433}
-                    .box{background:#fff;border:1px solid #dde3ec;border-radius:14px;padding:28px;max-width:420px}
-                    a{color:#4f46c7}</style></head><body><div class="box">
-                    <h1 style="font-size:17px;margin:0 0 10px">Giao dịch này đã được xử lý</h1>
-                    <p style="margin:0;color:#5c6b80;font-size:14px">Trạng thái: <b>__STATUS__</b>.
-                    <a href="__RETURN__">Quay lại cửa hàng</a></p></div></body></html>
-                    """
-                    .replace("__STATUS__", txn.getStatus().name())
-                    .replace("__RETURN__", esc(txn.getMerchantReturnUrl()));
+            return infoPage("Giao dịch này đã được xử lý",
+                    "Trạng thái: <b>" + statusText(txn.getStatus()) + "</b>. <a href=\"" + esc(txn.getMerchantReturnUrl())
+                            + "\">Quay lại cửa hàng</a>", "");
         }
         return """
                 <!doctype html><html lang="vi"><head><meta charset="utf-8">
@@ -125,7 +133,7 @@ public class CardCheckoutController {
                   <p class="hint">Thẻ thử: <b>4000 0000 0000 1000</b> · 12/2030 · CVV 123.
                   __CARD_HINT__
                   Số thẻ không được lưu — chỉ giữ 6 số đầu và 4 số cuối.</p>
-                </div></div></body></html>
+                </div></div>__POLL__</body></html>
                 """
                 .replace("__ORDER__", esc(txn.getOrderCode()))
                 .replace("__AMOUNT__", NumberFormat.getIntegerInstance(Locale.US).format(txn.getAmount()))
@@ -133,7 +141,36 @@ public class CardCheckoutController {
                 .replace("__BANK__", esc(txn.getBankCode()))
                 .replace("__CARD_HINT__", testCardHint(txn.getBankCode()))
                 .replace("__ID__", esc(txn.getGwTxnId()))
-                .replace("__ERROR__", error == null ? "" : "<p class=\"err\">" + esc(error) + "</p>");
+                .replace("__ERROR__", error == null ? "" : "<p class=\"err\">" + esc(error) + "</p>")
+                .replace("__POLL__", poll(txn));
+    }
+
+    private static String statusText(GateWayTransactionStatus status) {
+        return switch (status) {
+            case SUCCESS -> "Thành công";
+            case FAILED -> "Thất bại";
+            case EXPIRED -> "Hết hạn";
+            default -> status.name();
+        };
+    }
+
+    private static String poll(GatewayTransaction txn) {
+        return CheckoutStatusPoll.script("/card-checkout/" + txn.getGwTxnId() + "/status", txn.getStatus().name());
+    }
+
+    private static String infoPage(String title, String bodyHtml, String script) {
+        return """
+                <!doctype html><html lang="vi"><head><meta charset="utf-8"><title>__TITLE__</title>
+                <style>body{font-family:ui-sans-serif,system-ui,sans-serif;display:grid;place-items:center;
+                min-height:100vh;margin:0;background:#f4f6fa;color:#1d2433}
+                .box{background:#fff;border:1px solid #dde3ec;border-radius:14px;padding:28px;max-width:420px}
+                a{color:#4f46c7}</style></head><body><div class="box">
+                <h1 style="font-size:17px;margin:0 0 10px">__TITLE__</h1>
+                <p style="margin:0;color:#5c6b80;font-size:14px">__BODY__</p></div>__SCRIPT__</body></html>
+                """
+                .replace("__TITLE__", title)
+                .replace("__BODY__", bodyHtml)
+                .replace("__SCRIPT__", script);
     }
 
     private static String esc(String value) {

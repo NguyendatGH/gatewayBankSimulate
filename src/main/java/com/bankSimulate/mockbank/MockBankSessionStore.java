@@ -25,6 +25,7 @@ public class MockBankSessionStore {
 
     public static final class Session {
         private final String bankRef;
+        private final String merchantNo;
         private final String reference;
         private final long amount;
         private final String currency;
@@ -34,9 +35,10 @@ public class MockBankSessionStore {
         private int attempts;
         private boolean closed;
 
-        public Session(String bankRef, String reference, long amount, String currency, String panLast4,
+        public Session(String bankRef, String merchantNo, String reference, long amount, String currency, String panLast4,
                        String notifyUrl, String termUrl) {
             this.bankRef = bankRef;
+            this.merchantNo = merchantNo;
             this.reference = reference;
             this.amount = amount;
             this.currency = currency;
@@ -47,6 +49,7 @@ public class MockBankSessionStore {
 
         public String bankRef() { return bankRef; }
 
+        public String merchantNo() { return merchantNo; }
         public String reference() { return reference; }
         public long amount() { return amount; }
         public String currency() { return currency; }

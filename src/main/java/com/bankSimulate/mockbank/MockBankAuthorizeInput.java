@@ -1,6 +1,6 @@
 package com.bankSimulate.mockbank;
 
-public record MockBankAuthorizeInput(String reference, long amount, String currency,
+public record MockBankAuthorizeInput(String merchantNo, String reference, long amount, String currency,
                                      String pan, int expiryMonth, int expiryYear, String cvv,
                                      AuthPreference authPreference,
                                      String notifyUrl, String termUrl) {
