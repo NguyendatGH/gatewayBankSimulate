@@ -30,6 +30,8 @@ public interface GatewayTransactionRepository extends JpaRepository<GatewayTrans
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<GatewayTransaction> findWithLockByBankCodeAndBankRef(String bankCode, String bankRef);
 
+    Optional<GatewayTransaction> findByBankCodeAndBankRef(String bankCode, String bankRef);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<GatewayTransaction> findWithLockByGwTxnId(String gwTxnId);
 

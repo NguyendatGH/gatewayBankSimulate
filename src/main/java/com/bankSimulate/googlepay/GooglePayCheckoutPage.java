@@ -51,7 +51,7 @@ public class GooglePayCheckoutPage {
                 tokenizationSpecification:{type:'PAYMENT_GATEWAY',parameters:{gateway:'example',gatewayMerchantId:'exampleGatewayMerchantId'}}};
               function say(t){msg.textContent=t||'';}
               function pay(){
-                if(busy) return; busy=true; say('Đang mở Google Pay…');
+                if(busy) return; busy=true; window.checkoutBusy=true; say('Đang mở Google Pay…');
                 var req=Object.assign({},base,{allowedPaymentMethods:[method],merchantInfo:{merchantName:root.dataset.merchant},
                   transactionInfo:{totalPriceStatus:'FINAL',totalPrice:root.dataset.amount,currencyCode:'VND',countryCode:'VN'}});
                 client.loadPaymentData(req).then(function(pd){
@@ -59,13 +59,18 @@ public class GooglePayCheckoutPage {
                   var pick=document.getElementById('gpay-scenario');
                   return fetch('/checkout/'+root.dataset.trade+'/google-pay',{method:'POST',headers:{'Content-Type':'application/json'},
                     body:JSON.stringify({token:pd.paymentMethodData.tokenizationData.token,scenario:pick?pick.value:null})})
-                    .then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j};});});
+                    .then(function(r){
+                      // 410 = tab khác đã thanh toán xong, link đã đóng: tải lại để server hiện trang "phiên đã kết thúc"
+                      if(r.status===410){location.reload(); return null;}
+                      return r.json().then(function(j){return {ok:r.ok,body:j};});
+                    });
                 }).then(function(res){
+                  if(!res) return;
                   if(!res.ok) throw new Error(res.body&&res.body.message||'Thanh toán thất bại');
-                  if(res.body.status==='PENDING'){busy=false; say('Ngân hàng chưa phản hồi. Giao dịch vẫn đang chờ, bạn có thể thử lại.'); return;}
+                  if(res.body.status==='PENDING'){busy=false; window.checkoutBusy=false; say('Ngân hàng chưa phản hồi. Giao dịch vẫn đang chờ, bạn có thể thử lại.'); return;}
                   location.assign(res.body.redirectUrl);
                 }).catch(function(e){
-                  busy=false;
+                  busy=false; window.checkoutBusy=false;
                   say(e&&e.statusCode==='CANCELED' ? 'Bạn đã hủy thanh toán Google Pay.' : (e&&e.message)||'Không thể hoàn tất thanh toán Google Pay.');
                 });
               }

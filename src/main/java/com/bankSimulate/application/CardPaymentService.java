@@ -176,6 +176,10 @@ public class CardPaymentService {
                 .orElseThrow(() -> new ApiException(404, "TRANSACTION_NOT_FOUND", "Transaction not found"));
     }
 
+    public void tagLogForBankCallback(String bankCode, String bankRef) {
+        transactions.findByBankCodeAndBankRef(bankCode, bankRef).ifPresent(this::tagLog);
+    }
+
     public void handleBankNotification(String bankCode, String bankRef, boolean approved,
                                        String authCode, String message) {
         GatewayLogContext.setBank(bankCode);

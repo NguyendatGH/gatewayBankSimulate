@@ -7,16 +7,23 @@ import com.bankSimulate.domain.cardAuth.BankFailure;
 import com.bankSimulate.domain.common.ApiException;
 import com.bankSimulate.domain.enums.ThreeDsPreference;
 import com.bankSimulate.mockbank.web.dto.MockBankADtos;
+import com.bankSimulate.infrastructure.security.BankRequestSigner;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.web.client.RestClientException;
 
 @Component
 public class ThreeDsAcquirerClient implements CardAuthorizationPort {
 
     private final AcquirerEndpoints endpoints;
+    private final BankRequestSigner signer;
+    private final ObjectMapper json;
 
-    public ThreeDsAcquirerClient(AcquirerEndpoints endpoints) {
+    public ThreeDsAcquirerClient(AcquirerEndpoints endpoints, BankRequestSigner signer, ObjectMapper json) {
         this.endpoints = endpoints;
+        this.signer = signer;
+        this.json = json;
     }
 
     @Override
@@ -31,10 +38,16 @@ public class ThreeDsAcquirerClient implements CardAuthorizationPort {
                 "VND".equals(command.currency()) ? "704" : command.currency(),
                 new MockBankADtos.Card(command.pan(), expiry(command), command.cvv()),
                 preference(command.threeDsPreference()), command.notifyUrl(), command.termUrl());
+        // Ký đúng chuỗi sẽ gửi: serialize một lần, ký và gửi cùng biến raw
+        String raw = json.writeValueAsString(request);
+        BankRequestSigner.Signed signed = signer.sign(acquirerCode, raw);
         MockBankADtos.AuthorizeResponse response;
         try {
             response = endpoints.client(acquirerCode).post().uri("/mock-bank/{bank}/v1/authorize", acquirerCode)
-                    .body(request).retrieve().body(MockBankADtos.AuthorizeResponse.class);
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header(BankRequestSigner.TIMESTAMP_HEADER, signed.timestamp())
+                    .header(BankRequestSigner.SIGNATURE_HEADER, signed.signature())
+                    .body(raw).retrieve().body(MockBankADtos.AuthorizeResponse.class);
         } catch (RestClientException ex) {
             throw BankTransportErrors.translate(acquirerCode, ex);
         }

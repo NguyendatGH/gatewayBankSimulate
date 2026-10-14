@@ -33,6 +33,8 @@ public final class QrCheckoutPage {
             String message = switch (v.status()) {
                 case "PAID" -> "Giao dịch đã hoàn tất. Bạn có thể quay lại trang cửa hàng.";
                 case "EXPIRED" -> "Giao dịch đã hết hạn.";
+                case "DECLINED" -> "Ngân hàng đã từ chối giao dịch này. Bạn có thể quay lại cửa hàng để thử lại.";
+                case "CANCELLED" -> "Giao dịch đã bị huỷ.";
                 default -> "Giao dịch này không còn nhận xác nhận.";
             };
             statusPanel = "<div class=\"notice\" role=\"status\">" + message + "</div>";
@@ -70,7 +72,8 @@ public final class QrCheckoutPage {
                 .replace("__QR__", qrPanel)
                 .replace("__ACTION__", paymentAction)
                 .replace("__TEST_CONTROLS__", testControls)
-                .replace("__SCRIPT__", hasCustom ? custom.script() : "");
+                .replace("__SCRIPT__", (hasCustom ? custom.script() : "")
+                        + (v.pending() ? CheckoutStatusPoll.script("/checkout/" + v.tradeNo() + "/status", v.status()) : ""));
     }
 
     private static String methodTitle(String method) {

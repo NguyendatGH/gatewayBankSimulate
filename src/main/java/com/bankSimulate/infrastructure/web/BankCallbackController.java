@@ -22,6 +22,17 @@ public class BankCallbackController {
     private static final Logger log = LoggerFactory.getLogger(BankCallbackController.class);
 
 
+    // Body chưa verify nên txnId chỉ dùng để tìm giao dịch gắn prefix log, không dùng để xử lý
+    private void tagLog(String bank, String rawBody) {
+        try {
+            String bankRef = json.readTree(rawBody).path("txnId").asText(null);
+            if (bankRef != null && !bankRef.isBlank())
+                service.tagLogForBankCallback(bank, bankRef);
+        } catch (RuntimeException ignored) {
+            // body hỏng: để signer.matches từ chối, log không có prefix giao dịch
+        }
+    }
+
     public BankCallbackController(CardPaymentService service, CallbackSigner signer, ObjectMapper json) {
         this.service = service;
         this.signer = signer;
@@ -30,15 +41,17 @@ public class BankCallbackController {
 
     @PostMapping("/gateway-callback/{bank}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void notify(@PathVariable String bank, @RequestBody String rawBody,
+    public void notify(@PathVariable String bank, @RequestHeader(value = "X-Bank-Timestamp", required =false) String timestamp,  @RequestBody String rawBody,
                       @RequestHeader(value = "X-Bank-Signature", required = false) String signature) {
-        if (!signer.matches(rawBody, signature))
+        tagLog(bank, rawBody);
+        if (!signer.matches(bank, timestamp, rawBody, signature))
             throw new ApiException(401, "INVALID_BANK_SIGNATURE", "Callback signature does not match");
 
         MockBankADtos.Notification notification = json.readValue(rawBody, MockBankADtos.Notification.class);
         boolean approved = MockBankADtos.RESP_APPROVED.equals(notification.respCode());
 
-        log.info("Bank callback bank={} respCode={} approved={}",bank, notification.txnId(), notification.respCode(), notification.respMsg());
+        log.info("Bank callback bank={} txnId={} respCode={} approved={}",
+                bank, notification.txnId(), notification.respCode(), approved);
         service.handleBankNotification(bank, notification.txnId(), approved,
                 notification.authCode(), notification.respMsg());
     }

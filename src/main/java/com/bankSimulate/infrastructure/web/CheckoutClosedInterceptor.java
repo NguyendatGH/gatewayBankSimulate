@@ -2,6 +2,10 @@ package com.bankSimulate.infrastructure.web;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Optional;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -14,6 +18,7 @@ import jakarta.servlet.http.HttpServletResponse;
 
 @Component 
 public class CheckoutClosedInterceptor implements HandlerInterceptor{
+    private static final Logger log = LoggerFactory.getLogger(CheckoutClosedInterceptor.class);
     private final GuardCheckout guard;
 
     public CheckoutClosedInterceptor(GuardCheckout guard){
@@ -27,7 +32,12 @@ public class CheckoutClosedInterceptor implements HandlerInterceptor{
         req.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
         if(vars == null) return true;
         String id = vars.getOrDefault("tradeNo", vars.get("gwTxnId"));
-        if(id == null || !guard.isClosed(id)) return true;
+        if(id == null) return true;
+        Optional<String> closedAt = guard.closedAt(id);
+        if(closedAt.isEmpty()) return true;
+
+        log.warn("Blocked access to closed checkout id={} {} {} closedAt={} from={} -> 410",
+                id, req.getMethod(), req.getRequestURI(), closedAt.get(), req.getRemoteAddr());
 
         res.setStatus(HttpServletResponse.SC_GONE);
         res.setContentType("text/html;charset=UTF-8");

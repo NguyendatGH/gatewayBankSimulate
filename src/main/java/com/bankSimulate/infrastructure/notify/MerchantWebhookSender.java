@@ -1,18 +1,14 @@
 package com.bankSimulate.infrastructure.notify;
 
 import com.bankSimulate.infrastructure.logging.GatewayLogContext;
+import com.bankSimulate.infrastructure.security.HmacSha256;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
-
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -68,26 +64,25 @@ public class MerchantWebhookSender {
         }
     }
 
+    //send Secret from gateway to Encore
     private void post(String webhookUrl, String merchantSecret, Map<String, Object> body, String label) {
+      if(merchantSecret == null || merchantSecret.isBlank()){
+        throw new IllegalStateException("Merchant webhook secret is missing");
+      }
+      
         String raw = json.writeValueAsString(body);
+        String signature = HmacSha256.hex(raw,merchantSecret);
+        // Chỉ log 8 ký tự đầu của chữ ký để đối chiếu với log bên nhận, không log secret/body
+        log.info("Signed webhook with merchant secret: HMAC-SHA256(body {} bytes) sig={}...",
+                raw.length(), signature.substring(0, 8));
         log.info("webhook ->POST {} {}", webhookUrl , label);
         try {
             var response = http.post().uri(webhookUrl).contentType(MediaType.APPLICATION_JSON)
-                .header(SIGNATURE_HEADER, sign(raw, merchantSecret))
+                .header(SIGNATURE_HEADER, signature)
                 .body(raw).retrieve().toBodilessEntity();
             log.info("Webhook delivered {} status={} url={}", label, response.getStatusCode().value(), webhookUrl);
         } catch (RuntimeException ex) {
             log.warn("Webhook delivery failed {}: {}", label, ex.toString());
         }
-    }
-
-    private static String sign(String body, String secret) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-            return HexFormat.of().formatHex(mac.doFinal(body.getBytes(StandardCharsets.UTF_8)));
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException(e);
         }
-    }
 }
